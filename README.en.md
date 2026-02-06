@@ -19,6 +19,18 @@ TS3AudioBot is a TeamSpeak 3 audio bot with a built-in web console. It supports 
 - FFmpeg (in PATH or placed under `ffmpeg/` next to the jar)
 - yt-dlp (in PATH or configured explicitly)
 
+Optional: auto-download FFmpeg / yt-dlp (saved under `ffmpeg/` and `yt-dlp/`)
+
+Windows PowerShell:
+```powershell
+.\scripts\setup-tools.ps1
+```
+
+Linux / macOS:
+```bash
+./scripts/setup-tools.sh
+```
+
 #### 2) External Config
 Place `ts3Audio-config.toml` **next to the jar** and edit as needed:
 ```toml

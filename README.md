@@ -21,6 +21,18 @@ TS3AudioBot 是一个带 Web 控制台的 TeamSpeak 3 音频机器人项目，�
 - FFmpeg（放入系统 PATH，或放在程序同目录的 `ffmpeg/` 内）
 - yt-dlp（放入系统 PATH，或在配置里指定）
 
+可选：自动下载 FFmpeg / yt-dlp（下载到项目目录的 `ffmpeg/` 与 `yt-dlp/`）
+
+Windows PowerShell：
+```powershell
+.\scripts\setup-tools.ps1
+```
+
+Linux / macOS：
+```bash
+./scripts/setup-tools.sh
+```
+
 #### 2) 准备外置配置
 将 `ts3Audio-config.toml` 放到 **jar 同目录**，按需修改：
 ```toml
