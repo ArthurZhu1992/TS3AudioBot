@@ -1,0 +1,584 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>机器人管理 - TS3AudioBot</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700&display=swap" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" />
+    <style>
+        :root {
+            --primary: #4361ee;
+            --secondary: #3a0ca3;
+            --accent: #4cc9f0;
+            --success: #4ade80;
+            --danger: #f72585;
+            --warning: #f8961e;
+            --dark: #0f172a;
+            --dark-2: #1e293b;
+            --light: #f8fafc;
+            --muted: #94a3b8;
+            --card: rgba(30, 41, 59, 0.85);
+            --border: rgba(255, 255, 255, 0.08);
+            --shadow: 0 12px 28px rgba(0, 0, 0, 0.25);
+        }
+
+        body.theme-dark {
+            background: linear-gradient(135deg, var(--dark) 0%, var(--dark-2) 100%);
+            color: var(--light);
+            min-height: 100vh;
+            font-family: "Manrope", "Microsoft YaHei", "PingFang SC", sans-serif;
+        }
+
+        .navbar {
+            background: rgba(15, 23, 42, 0.95) !important;
+            border-bottom: 1px solid var(--border);
+            backdrop-filter: blur(12px);
+        }
+
+        .navbar .nav-link {
+            color: var(--muted);
+            font-weight: 600;
+        }
+
+        .navbar .nav-link.active,
+        .navbar .nav-link:hover {
+            color: var(--accent);
+        }
+
+        .page-title {
+            background: linear-gradient(to right, var(--accent), var(--primary));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow);
+        }
+
+        .card-header {
+            background: rgba(15, 23, 42, 0.6);
+            border-bottom: 1px solid var(--border);
+            color: var(--light);
+        }
+
+        .table {
+            color: var(--light);
+            --bs-table-bg: rgba(15, 23, 42, 0.6);
+            --bs-table-color: var(--light);
+            --bs-table-hover-bg: rgba(67, 97, 238, 0.18);
+            --bs-table-hover-color: var(--light);
+        }
+
+        .table > :not(caption) > * > * {
+            border-color: rgba(255, 255, 255, 0.08);
+            background-color: var(--bs-table-bg);
+        }
+
+        .table-light {
+            --bs-table-bg: rgba(15, 23, 42, 0.6);
+            --bs-table-color: var(--muted);
+        }
+
+        .table-hover tbody tr:hover > * {
+            background-color: rgba(67, 97, 238, 0.18);
+        }
+
+        .form-label {
+            color: var(--muted);
+            font-weight: 600;
+        }
+
+        .form-control,
+        .form-select {
+            background: rgba(15, 23, 42, 0.8);
+            color: var(--light);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+        }
+
+        .form-control::placeholder {
+            color: rgba(148, 163, 184, 0.85);
+        }
+
+        .form-control:focus,
+        .form-select:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 0.2rem rgba(67, 97, 238, 0.25);
+            background: rgba(15, 23, 42, 0.9);
+            color: var(--light);
+        }
+
+        .btn-primary {
+            border: none;
+            background: linear-gradient(to right, var(--primary), var(--secondary));
+        }
+
+        .btn-primary:hover {
+            opacity: 0.92;
+        }
+
+        .btn-danger {
+            border: none;
+            background: linear-gradient(to right, var(--danger), #b5179e);
+        }
+
+        .btn-outline-primary {
+            color: var(--accent);
+            border-color: rgba(76, 201, 240, 0.6);
+        }
+
+        .btn-outline-primary:hover {
+            background: rgba(76, 201, 240, 0.12);
+            color: var(--accent);
+        }
+
+        .btn-outline-secondary,
+        .btn-outline-light {
+            color: var(--light);
+            border-color: rgba(255, 255, 255, 0.25);
+        }
+
+        .btn-outline-secondary:hover,
+        .btn-outline-light:hover {
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .btn-outline-danger {
+            color: var(--danger);
+            border-color: rgba(247, 37, 133, 0.6);
+        }
+
+        .btn-outline-danger:hover {
+            background: rgba(247, 37, 133, 0.1);
+            color: var(--danger);
+        }
+
+        .text-muted {
+            color: var(--muted) !important;
+        }
+
+        .status-badge.text-bg-success {
+            background: rgba(74, 222, 128, 0.2) !important;
+            color: var(--success) !important;
+            border: 1px solid rgba(74, 222, 128, 0.35);
+        }
+
+        .status-badge.text-bg-warning {
+            background: rgba(248, 150, 30, 0.2) !important;
+            color: var(--warning) !important;
+            border: 1px solid rgba(248, 150, 30, 0.35);
+        }
+
+        .status-badge.text-bg-danger {
+            background: rgba(247, 37, 133, 0.18) !important;
+            color: var(--danger) !important;
+            border: 1px solid rgba(247, 37, 133, 0.35);
+        }
+
+        .status-badge.text-bg-secondary {
+            background: rgba(67, 97, 238, 0.2) !important;
+            color: var(--accent) !important;
+            border: 1px solid rgba(76, 201, 240, 0.3);
+        }
+
+        .accordion-item {
+            background: rgba(15, 23, 42, 0.7);
+            border: 1px solid var(--border);
+        }
+
+        .accordion-button {
+            background: rgba(15, 23, 42, 0.7);
+            color: var(--light);
+        }
+
+        .accordion-button:focus {
+            box-shadow: 0 0 0 0.2rem rgba(67, 97, 238, 0.25);
+        }
+
+        .accordion-button:not(.collapsed) {
+            color: var(--accent);
+            background: rgba(67, 97, 238, 0.18);
+        }
+
+        .modal-content {
+            background: #1e293b;
+            color: var(--light);
+            border: 1px solid var(--border);
+        }
+
+        .modal-header,
+        .modal-footer {
+            border-color: var(--border);
+        }
+
+        .alert-danger {
+            background: rgba(247, 37, 133, 0.15);
+            color: var(--danger);
+            border: 1px solid rgba(247, 37, 133, 0.35);
+        }
+
+        footer {
+            color: var(--muted);
+        }
+    </style>
+</head>
+<body class="theme-dark">
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <div class="container">
+        <a class="navbar-brand fw-semibold" th:href="@{/}">TS3AudioBot</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNavbar" aria-controls="mainNavbar" aria-expanded="false" aria-label="切换导航">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="mainNavbar">
+            <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                <li class="nav-item">
+                    <a class="nav-link active" th:href="@{/}">机器人管理</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" th:href="@{/player}">播放中心</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" th:href="@{/settings}">设置</a>
+                </li>
+            </ul>
+            <form method="post" action="/logout" class="d-flex">
+                <button class="btn btn-outline-light btn-sm" type="submit">退出</button>
+            </form>
+        </div>
+    </div>
+</nav>
+
+<main class="container py-4">
+    <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3 mb-4">
+        <div>
+            <h1 class="h3 fw-bold mb-1 page-title">机器人管理</h1>
+            <p class="text-muted mb-0">新增、编辑、删除机器人，修改后立即热生效。</p>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-primary" type="button" id="newBotBtn">新建机器人</button>
+        </div>
+    </div>
+
+    <div class="row g-4">
+        <div class="col-12 col-xl-7">
+            <div class="card shadow-sm">
+                <div class="card-header d-flex align-items-center justify-content-between">
+                    <span class="fw-semibold">机器人列表</span>
+                    <span class="text-muted small" th:text="|共 ${#lists.size(bots)} 个|">共 0 个</span>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                        <tr>
+                            <th>名称</th>
+                            <th>状态</th>
+                            <th>地址</th>
+                            <th>频道</th>
+                            <th class="text-end">操作</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <tr th:each="bot : ${bots}">
+                            <td class="fw-semibold" th:text="${bot.name}">bot</td>
+                            <td>
+                                <span class="badge text-bg-secondary status-badge" th:text="${statuses[bot.name]}" th:attr="data-status=${statuses[bot.name]}">status</span>
+                            </td>
+                            <td class="text-muted" th:text="${bot.connectAddress}">address</td>
+                            <td th:text="${bot.channel}">channel</td>
+                            <td class="text-end">
+                                <div class="btn-group btn-group-sm" role="group">
+                                    <button class="btn btn-outline-primary edit-btn" type="button"
+                                            th:attr="data-name=${bot.name},data-run=${bot.run},data-address=${bot.connectAddress},data-channel=${bot.channel},data-nickname=${bot.nickname},data-server-password=${bot.serverPassword},data-channel-password=${bot.channelPassword},data-identity=${bot.identity},data-identity-offset=${bot.identityKeyOffset},data-client-version=${bot.clientVersion},data-client-platform=${bot.clientPlatform},data-client-sign=${bot.clientVersionSign},data-client-hwid=${bot.clientHwid},data-client-phonetic=${bot.clientNicknamePhonetic},data-client-token=${bot.clientDefaultToken}">编辑</button>
+                                    <button class="btn btn-outline-danger delete-btn" type="button" th:attr="data-name=${bot.name}">删除</button>
+                                    <a class="btn btn-outline-secondary" th:href="@{/player(botId=${bot.name})}">播放中心</a>
+                                </div>
+                            </td>
+                        </tr>
+                        <tr th:if="${#lists.isEmpty(bots)}">
+                            <td colspan="5" class="text-center text-muted py-4">暂无机器人，请先创建。</td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-xl-5">
+            <div class="card shadow-sm" id="botFormCard">
+                <div class="card-header">
+                    <h2 class="h5 mb-0" id="formTitle">新增机器人</h2>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-danger d-none" id="formAlert" role="alert"></div>
+                    <form id="botForm" novalidate>
+                        <input type="hidden" name="originalName" />
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label class="form-label">名称</label>
+                                <input name="name" type="text" class="form-control" placeholder="例如: music-bot" required data-bs-toggle="tooltip" data-bs-title="机器人唯一名称" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">启动状态</label>
+                                <select name="run" class="form-select" data-bs-toggle="tooltip" data-bs-title="创建后是否自动连接">
+                                    <option value="true">自动启动</option>
+                                    <option value="false">手动启动</option>
+                                </select>
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label">服务器地址</label>
+                                <input name="connectAddress" type="text" class="form-control" placeholder="例如: ts.example.com" required data-bs-toggle="tooltip" data-bs-title="TS3 服务器地址" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">频道</label>
+                                <input name="channel" type="text" class="form-control" placeholder="频道名称" data-bs-toggle="tooltip" data-bs-title="机器人进入的频道规则：填写频道名会匹配到第一个同名频道；也支持完整路径，如 其他游戏/荒野大镖客2。" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">昵称</label>
+                                <input name="nickname" type="text" class="form-control" placeholder="TS3AudioBot" data-bs-toggle="tooltip" data-bs-title="机器人显示昵称" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">服务器密码</label>
+                                <input name="serverPassword" type="password" class="form-control" placeholder="可选" data-bs-toggle="tooltip" data-bs-title="服务器密码" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label">频道密码</label>
+                                <input name="channelPassword" type="password" class="form-control" placeholder="可选" data-bs-toggle="tooltip" data-bs-title="频道密码" />
+                            </div>
+                        </div>
+
+                        <div class="accordion mt-4" id="advancedOptions">
+                            <div class="accordion-item">
+                                <h2 class="accordion-header" id="advancedHeading">
+                                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#advancedCollapse" aria-expanded="false" aria-controls="advancedCollapse">
+                                        高级选项
+                                    </button>
+                                </h2>
+                                <div id="advancedCollapse" class="accordion-collapse collapse" aria-labelledby="advancedHeading" data-bs-parent="#advancedOptions">
+                                    <div class="accordion-body">
+                                        <div class="row g-3">
+                                            <div class="col-12">
+                                                <label class="form-label">Identity</label>
+                                                <input name="identity" type="text" class="form-control" placeholder="留空自动生成" data-bs-toggle="tooltip" data-bs-title="TS3 身份字符串" />
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label">Identity Key Offset</label>
+                                                <input name="identityKeyOffset" type="number" class="form-control" placeholder="8" min="0" data-bs-toggle="tooltip" data-bs-title="TS3 安全等级" />
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label">Client Version</label>
+                                                <input name="clientVersion" type="text" class="form-control" placeholder="可选" data-bs-toggle="tooltip" data-bs-title="客户端版本" />
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label">Client Platform</label>
+                                                <input name="clientPlatform" type="text" class="form-control" placeholder="Windows" data-bs-toggle="tooltip" data-bs-title="客户端平台" />
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label">Client Version Sign</label>
+                                                <input name="clientVersionSign" type="text" class="form-control" placeholder="可选" data-bs-toggle="tooltip" data-bs-title="客户端签名" />
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label">Client HWID</label>
+                                                <input name="clientHwid" type="text" class="form-control" placeholder="可选" data-bs-toggle="tooltip" data-bs-title="硬件 ID" />
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label">Nickname Phonetic</label>
+                                                <input name="clientNicknamePhonetic" type="text" class="form-control" placeholder="可选" data-bs-toggle="tooltip" data-bs-title="昵称音标" />
+                                            </div>
+                                            <div class="col-md-6">
+                                                <label class="form-label">Default Token</label>
+                                                <input name="clientDefaultToken" type="text" class="form-control" placeholder="可选" data-bs-toggle="tooltip" data-bs-title="默认权限令牌" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="d-flex flex-wrap gap-2 mt-4">
+                            <button class="btn btn-primary" type="submit" id="submitBtn">保存</button>
+                            <button class="btn btn-outline-secondary" type="button" id="resetBtn">清空</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+
+<footer class="border-top py-3 text-center text-muted small">TS3AudioBot Web 控制台</footer>
+
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">确认删除</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body">
+                确认删除机器人 <strong id="deleteTargetName">-</strong> ？
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-danger" id="confirmDeleteBtn">删除</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    const $form = $('#botForm');
+    const form = $form[0];
+    const $formTitle = $('#formTitle');
+    const $formAlert = $('#formAlert');
+    const $submitBtn = $('#submitBtn');
+    const $deleteTargetName = $('#deleteTargetName');
+    let deleteTarget = '';
+    let deleteModal = null;
+
+    function showAlert(message) {
+        if (!message) return;
+        $formAlert.text(message).removeClass('d-none');
+    }
+
+    function clearAlert() {
+        $formAlert.addClass('d-none').text('');
+    }
+
+    function applyStatusBadges() {
+        $('.status-badge').each(function () {
+            const status = String($(this).data('status') || '').toLowerCase();
+            let cls = 'text-bg-secondary';
+            if (status.includes('run') || status.includes('online')) {
+                cls = 'text-bg-success';
+            } else if (status.includes('start') || status.includes('connect')) {
+                cls = 'text-bg-warning';
+            } else if (status.includes('error') || status.includes('fail')) {
+                cls = 'text-bg-danger';
+            }
+            $(this)
+                .removeClass('text-bg-secondary text-bg-success text-bg-warning text-bg-danger')
+                .addClass(cls);
+        });
+    }
+
+    function focusForm() {
+        const offset = $('#botFormCard').offset();
+        if (offset) {
+            $('html, body').animate({ scrollTop: offset.top - 16 }, 250);
+        }
+    }
+
+    function editBot(btn) {
+        const $btn = $(btn);
+        clearAlert();
+        $formTitle.text('编辑机器人');
+        form.originalName.value = $btn.data('name') || '';
+        form.name.value = $btn.data('name') || '';
+        form.run.value = $btn.data('run') === true || $btn.data('run') === 'true' ? 'true' : 'false';
+        form.connectAddress.value = $btn.data('address') || '';
+        form.channel.value = $btn.data('channel') || '';
+        form.nickname.value = $btn.data('nickname') || '';
+        form.serverPassword.value = $btn.data('serverPassword') || '';
+        form.channelPassword.value = $btn.data('channelPassword') || '';
+        form.identity.value = $btn.data('identity') || '';
+        form.identityKeyOffset.value = $btn.data('identityOffset') || '8';
+        form.clientVersion.value = $btn.data('clientVersion') || '';
+        form.clientPlatform.value = $btn.data('clientPlatform') || '';
+        form.clientVersionSign.value = $btn.data('clientSign') || '';
+        form.clientHwid.value = $btn.data('clientHwid') || '';
+        form.clientNicknamePhonetic.value = $btn.data('clientPhonetic') || '';
+        form.clientDefaultToken.value = $btn.data('clientToken') || '';
+        focusForm();
+    }
+
+    function resetForm() {
+        clearAlert();
+        $formTitle.text('新增机器人');
+        form.reset();
+        form.originalName.value = '';
+    }
+
+    function submitBot(event) {
+        event.preventDefault();
+        clearAlert();
+
+        const payload = {
+            name: form.name.value,
+            run: form.run.value === 'true',
+            connectAddress: form.connectAddress.value,
+            channel: form.channel.value,
+            nickname: form.nickname.value,
+            serverPassword: form.serverPassword.value,
+            channelPassword: form.channelPassword.value,
+            identity: form.identity.value,
+            identityKeyOffset: Number(form.identityKeyOffset.value || 8),
+            clientVersion: form.clientVersion.value,
+            clientPlatform: form.clientPlatform.value,
+            clientVersionSign: form.clientVersionSign.value,
+            clientHwid: form.clientHwid.value,
+            clientNicknamePhonetic: form.clientNicknamePhonetic.value,
+            clientDefaultToken: form.clientDefaultToken.value
+        };
+        const original = form.originalName.value;
+        const url = original
+            ? `/internal/admin/bots/${encodeURIComponent(original)}`
+            : '/internal/admin/bots';
+        const method = original ? 'PUT' : 'POST';
+
+        $submitBtn.prop('disabled', true).text('保存中...');
+        $.ajax({
+            url,
+            method,
+            contentType: 'application/json',
+            data: JSON.stringify(payload)
+        }).done(() => window.location.reload())
+            .fail((xhr) => {
+                const msg = xhr.responseJSON?.message || xhr.responseText || '保存失败，请稍后重试。';
+                showAlert(msg);
+            })
+            .always(() => {
+                $submitBtn.prop('disabled', false).text('保存');
+            });
+        return false;
+    }
+
+    function requestDelete(name) {
+        deleteTarget = name || '';
+        $deleteTargetName.text(deleteTarget || '-');
+        if (deleteModal) {
+            deleteModal.show();
+        }
+    }
+
+    function confirmDelete() {
+        if (!deleteTarget) {
+            return;
+        }
+        $.ajax({
+            url: `/internal/admin/bots/${encodeURIComponent(deleteTarget)}`,
+            method: 'DELETE'
+        }).done(() => window.location.reload());
+    }
+
+    $(function () {
+        deleteModal = new bootstrap.Modal($('#deleteModal')[0]);
+        $('[data-bs-toggle="tooltip"]').each(function () {
+            new bootstrap.Tooltip(this);
+        });
+        applyStatusBadges();
+
+        $('.edit-btn').on('click', function () { editBot(this); });
+        $('.delete-btn').on('click', function () { requestDelete($(this).data('name')); });
+        $('#confirmDeleteBtn').on('click', confirmDelete);
+        $('#resetBtn').on('click', resetForm);
+        $('#newBotBtn').on('click', function () { resetForm(); focusForm(); });
+        $form.on('submit', submitBot);
+    });
+</script>
+</body>
+</html>

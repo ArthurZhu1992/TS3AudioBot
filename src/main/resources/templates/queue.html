@@ -1,0 +1,486 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>队列 - TS3AudioBot</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700&display=swap" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" />
+    <style>
+        :root {
+            --primary: #4361ee;
+            --secondary: #3a0ca3;
+            --accent: #4cc9f0;
+            --success: #4ade80;
+            --danger: #f72585;
+            --warning: #f8961e;
+            --dark: #0f172a;
+            --dark-2: #1e293b;
+            --light: #f8fafc;
+            --muted: #94a3b8;
+            --card: rgba(30, 41, 59, 0.85);
+            --border: rgba(255, 255, 255, 0.08);
+            --shadow: 0 12px 28px rgba(0, 0, 0, 0.25);
+        }
+
+        body.theme-dark {
+            background: linear-gradient(135deg, var(--dark) 0%, var(--dark-2) 100%);
+            color: var(--light);
+            min-height: 100vh;
+            font-family: "Manrope", "Microsoft YaHei", "PingFang SC", sans-serif;
+        }
+
+        .navbar {
+            background: rgba(15, 23, 42, 0.95) !important;
+            border-bottom: 1px solid var(--border);
+            backdrop-filter: blur(12px);
+        }
+
+        .navbar .nav-link {
+            color: var(--muted);
+            font-weight: 600;
+        }
+
+        .navbar .nav-link.active,
+        .navbar .nav-link:hover {
+            color: var(--accent);
+        }
+
+        .page-title {
+            background: linear-gradient(to right, var(--accent), var(--primary));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow);
+        }
+
+        .card-header {
+            background: rgba(15, 23, 42, 0.6);
+            border-bottom: 1px solid var(--border);
+            color: var(--light);
+        }
+
+        .form-label {
+            color: var(--muted);
+            font-weight: 600;
+        }
+
+        .form-control,
+        .form-select {
+            background: rgba(15, 23, 42, 0.8);
+            color: var(--light);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+        }
+
+        .form-control::placeholder {
+            color: rgba(148, 163, 184, 0.85);
+        }
+
+        .form-control:focus,
+        .form-select:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 0.2rem rgba(67, 97, 238, 0.25);
+            background: rgba(15, 23, 42, 0.9);
+            color: var(--light);
+        }
+
+        .btn-primary {
+            border: none;
+            background: linear-gradient(to right, var(--primary), var(--secondary));
+        }
+
+        .btn-primary:hover {
+            opacity: 0.92;
+        }
+
+        .btn-success {
+            border: none;
+            background: linear-gradient(to right, var(--success), #16a34a);
+        }
+
+        .btn-danger {
+            border: none;
+            background: linear-gradient(to right, var(--danger), #b5179e);
+        }
+
+        .btn-warning {
+            border: none;
+            background: linear-gradient(to right, var(--warning), #ea580c);
+        }
+
+        .btn-outline-secondary,
+        .btn-outline-light {
+            color: var(--light);
+            border-color: rgba(255, 255, 255, 0.25);
+        }
+
+        .btn-outline-secondary:hover,
+        .btn-outline-light:hover {
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .list-group-item {
+            background: rgba(15, 23, 42, 0.7);
+            color: #f1f5f9;
+            border: 1px solid var(--border);
+        }
+
+        .list-group-item.active {
+            background: rgba(67, 97, 238, 0.2);
+            border-color: rgba(67, 97, 238, 0.45);
+            color: var(--light);
+        }
+
+        .list-group-item .text-muted {
+            color: rgba(248, 250, 252, 0.9) !important;
+        }
+
+        .form-select option {
+            background-color: #0f172a;
+            color: #f8fafc;
+        }
+
+        .text-muted {
+            color: #cbd5f5 !important;
+        }
+
+        .alert-danger {
+            background: rgba(247, 37, 133, 0.15);
+            color: var(--danger);
+            border: 1px solid rgba(247, 37, 133, 0.35);
+        }
+
+        footer {
+            color: var(--muted);
+        }
+    </style>
+</head>
+<body class="theme-dark">
+<nav class="navbar navbar-expand-lg navbar-dark">
+    <div class="container">
+        <a class="navbar-brand fw-semibold" th:href="@{/}">TS3AudioBot</a>
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#mainNavbar" aria-controls="mainNavbar" aria-expanded="false" aria-label="切换导航">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="mainNavbar">
+            <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+                <li class="nav-item">
+                    <a class="nav-link" th:href="@{/}">机器人管理</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" th:href="@{/player}">播放中心</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" th:href="@{/settings}">设置</a>
+                </li>
+            </ul>
+            <form method="post" action="/logout" class="d-flex">
+                <button class="btn btn-outline-light btn-sm" type="submit">退出</button>
+            </form>
+        </div>
+    </div>
+</nav>
+
+<main class="container py-4">
+    <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3 mb-4">
+        <div>
+            <h1 class="h3 fw-bold mb-1 page-title">播放队列</h1>
+            <p class="text-muted mb-0">支持多播放列表与多机器人，切换机器人后会保留上次选择的播放列表。</p>
+        </div>
+    </div>
+
+    <div class="alert alert-danger d-none" id="pageAlert" role="alert"></div>
+
+    <div class="row g-4">
+        <div class="col-12 col-lg-5">
+            <div class="card shadow-sm">
+                <div class="card-header fw-semibold">播放列表管理</div>
+                <div class="card-body">
+                    <div class="mb-3">
+                        <label class="form-label" for="botSelect">选择机器人</label>
+                        <select id="botSelect" class="form-select">
+                            <option value="">请选择</option>
+                            <option th:each="b : ${bots}"
+                                    th:value="${b.id()}"
+                                    th:selected="${b.id() == botId}"
+                                    th:text="${b.name()}">
+                                bot
+                            </option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="playlistSelect">播放列表</label>
+                        <select id="playlistSelect" class="form-select">
+                            <option th:each="playlist : ${playlists}"
+                                    th:value="${playlist}"
+                                    th:selected="${playlist == playlistId}"
+                                    th:text="${playlist}">
+                                default
+                            </option>
+                        </select>
+                    </div>
+
+                    <div class="d-flex flex-wrap gap-2 mb-4">
+                        <button class="btn btn-primary" type="button" id="switchPlaylistBtn">查看</button>
+                        <button class="btn btn-success" type="button" id="activatePlaylistBtn">设为播放列表</button>
+                        <button class="btn btn-danger" type="button" id="deletePlaylistBtn">删除</button>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="playlistName">新建播放列表</label>
+                        <div class="input-group">
+                            <input type="text" id="playlistName" class="form-control" placeholder="请输入播放列表名称" />
+                            <button class="btn btn-primary" type="button" id="createPlaylistBtn">创建</button>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label" for="renameName">重命名</label>
+                        <div class="input-group">
+                            <input type="text" id="renameName" class="form-control" placeholder="输入新名称" />
+                            <button class="btn btn-outline-light" type="button" id="renamePlaylistBtn">重命名</button>
+                        </div>
+                    </div>
+
+                    <div class="mb-2">
+                        <label class="form-label" for="songQuery">添加歌曲</label>
+                        <input type="text" id="songQuery" class="form-control" placeholder="粘贴链接或搜索关键词" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label" for="songAddedBy">添加人</label>
+                        <input type="text" id="songAddedBy" class="form-control" placeholder="可选" />
+                    </div>
+                    <button class="btn btn-success w-100" type="button" id="addSongBtn">添加到队列</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-12 col-lg-7">
+            <div class="card shadow-sm">
+                <div class="card-header d-flex align-items-center justify-content-between">
+                    <span class="fw-semibold">队列条目</span>
+                    <span class="text-muted small" th:text="|共 ${queue.size()} 首|">共 0 首</span>
+                </div>
+                <div class="card-body">
+                    <div class="list-group">
+                        <div class="list-group-item" th:each="item,iter : ${queue}" th:classappend="${iter.index == currentIndex ? ' active' : ''}">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <div class="fw-semibold" th:text="${item.track().title()}">Title</div>
+                                    <small class="text-muted" th:text="${item.track().sourceType()}">source</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="text-muted" th:if="${#lists.isEmpty(queue)}">队列为空</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</main>
+
+<footer class="border-top py-3 text-center text-muted small">TS3AudioBot Web 控制台</footer>
+
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    const STORAGE_KEY = 'ts3ab.selectedBotId';
+    const PLAYLIST_KEY_PREFIX = 'ts3ab.playlist.';
+    const params = new URLSearchParams(window.location.search);
+    const $botSelect = $('#botSelect');
+    const $playlistSelect = $('#playlistSelect');
+    const $alert = $('#pageAlert');
+
+    function showAlert(message) {
+        if (!message) return;
+        $alert.text(message).removeClass('d-none');
+    }
+
+    function clearAlert() {
+        $alert.addClass('d-none').text('');
+    }
+
+    function getBotId() {
+        return new URLSearchParams(window.location.search).get('botId');
+    }
+
+    function getPlaylistId() {
+        const value = $playlistSelect.val();
+        return value && value.length ? value : 'default';
+    }
+
+    function persistPlaylist(botId, playlistId) {
+        if (!botId || !playlistId) return;
+        localStorage.setItem(PLAYLIST_KEY_PREFIX + botId, playlistId);
+    }
+
+    function switchPlaylist() {
+        clearAlert();
+        const botId = getBotId();
+        const playlistId = getPlaylistId();
+        if (!botId) {
+            showAlert('请选择机器人');
+            return;
+        }
+        persistPlaylist(botId, playlistId);
+        $.ajax({
+            url: `/internal/queue/${botId}/playlists/${encodeURIComponent(playlistId)}/activate`,
+            method: 'POST'
+        }).done(() => {
+            window.location.href = `/queue?botId=${encodeURIComponent(botId)}&playlistId=${encodeURIComponent(playlistId)}`;
+        }).fail(() => showAlert('切换失败，请稍后重试'));
+    }
+
+    function activatePlaylist() {
+        clearAlert();
+        const botId = getBotId();
+        const playlistId = getPlaylistId();
+        if (!botId || !playlistId) {
+            showAlert('请选择机器人和播放列表');
+            return;
+        }
+        persistPlaylist(botId, playlistId);
+        $.ajax({
+            url: `/internal/queue/${botId}/playlists/${encodeURIComponent(playlistId)}/activate`,
+            method: 'POST'
+        }).done(() => window.location.reload())
+            .fail(() => showAlert('设置播放列表失败'));
+    }
+
+    function createPlaylist() {
+        clearAlert();
+        const botId = getBotId();
+        const name = $('#playlistName').val().trim();
+        if (!botId || !name) {
+            showAlert('请输入播放列表名称');
+            return;
+        }
+        $.ajax({
+            url: `/internal/queue/${botId}/playlists`,
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ name })
+        }).done(() => {
+            persistPlaylist(botId, name);
+            window.location.href = `/queue?botId=${encodeURIComponent(botId)}&playlistId=${encodeURIComponent(name)}`;
+        }).fail(() => showAlert('创建失败'));
+    }
+
+    function renamePlaylist() {
+        clearAlert();
+        const botId = getBotId();
+        const oldName = getPlaylistId();
+        const name = $('#renameName').val().trim();
+        if (!botId || !oldName || !name) {
+            showAlert('请输入新名称');
+            return;
+        }
+        if (oldName === 'default') {
+            showAlert('默认播放列表不允许重命名');
+            return;
+        }
+        $.ajax({
+            url: `/internal/queue/${botId}/playlists/${encodeURIComponent(oldName)}/rename`,
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ name })
+        }).done(() => {
+            persistPlaylist(botId, name);
+            window.location.href = `/queue?botId=${encodeURIComponent(botId)}&playlistId=${encodeURIComponent(name)}`;
+        }).fail(() => showAlert('重命名失败'));
+    }
+
+    function deletePlaylist() {
+        clearAlert();
+        const botId = getBotId();
+        const playlistId = getPlaylistId();
+        if (!botId || !playlistId) {
+            showAlert('请选择播放列表');
+            return;
+        }
+        if (playlistId === 'default') {
+            showAlert('默认播放列表不可删除');
+            return;
+        }
+        $.ajax({
+            url: `/internal/queue/${botId}/playlists/${encodeURIComponent(playlistId)}`,
+            method: 'DELETE'
+        }).done(() => {
+            localStorage.removeItem(PLAYLIST_KEY_PREFIX + botId);
+            window.location.href = `/queue?botId=${encodeURIComponent(botId)}`;
+        }).fail(() => showAlert('删除失败'));
+    }
+
+    function addToQueue() {
+        clearAlert();
+        const botId = getBotId();
+        const playlistId = getPlaylistId();
+        const query = $('#songQuery').val().trim();
+        const addedBy = $('#songAddedBy').val().trim() || 'web';
+        if (!botId || !query) {
+            showAlert('请输入歌曲链接或关键词');
+            return;
+        }
+        persistPlaylist(botId, playlistId);
+        $.ajax({
+            url: `/internal/queue/${botId}/${encodeURIComponent(playlistId)}/add`,
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ query, addedBy })
+        }).done(() => window.location.reload())
+            .fail(() => showAlert('添加失败'));
+    }
+
+    $(function () {
+        const botId = params.get('botId');
+        const playlistId = params.get('playlistId');
+
+        if (!botId) {
+            const stored = localStorage.getItem(STORAGE_KEY);
+            if (stored) {
+                const storedPlaylist = localStorage.getItem(PLAYLIST_KEY_PREFIX + stored);
+                const target = storedPlaylist
+                    ? `/queue?botId=${encodeURIComponent(stored)}&playlistId=${encodeURIComponent(storedPlaylist)}`
+                    : `/queue?botId=${encodeURIComponent(stored)}`;
+                window.location.href = target;
+                return;
+            }
+        } else {
+            localStorage.setItem(STORAGE_KEY, botId);
+        }
+
+        if (botId && !playlistId) {
+            const storedPlaylist = localStorage.getItem(PLAYLIST_KEY_PREFIX + botId);
+            if (storedPlaylist) {
+                window.location.href = `/queue?botId=${encodeURIComponent(botId)}&playlistId=${encodeURIComponent(storedPlaylist)}`;
+                return;
+            }
+        }
+
+        $botSelect.on('change', () => {
+            const selected = $botSelect.val();
+            if (!selected) return;
+            localStorage.setItem(STORAGE_KEY, selected);
+            const storedPlaylist = localStorage.getItem(PLAYLIST_KEY_PREFIX + selected);
+            const target = storedPlaylist
+                ? `/queue?botId=${encodeURIComponent(selected)}&playlistId=${encodeURIComponent(storedPlaylist)}`
+                : `/queue?botId=${encodeURIComponent(selected)}`;
+            window.location.href = target;
+        });
+
+        $('#switchPlaylistBtn').on('click', switchPlaylist);
+        $('#activatePlaylistBtn').on('click', activatePlaylist);
+        $('#deletePlaylistBtn').on('click', deletePlaylist);
+        $('#createPlaylistBtn').on('click', createPlaylist);
+        $('#renamePlaylistBtn').on('click', renamePlaylist);
+        $('#addSongBtn').on('click', addToQueue);
+    });
+</script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+[configs]
+bots_path = "bots"
+db_path = "data/ts3audiobot.db"
+
+[web]
+port = 58913
+hosts = ["*"]
+
+[web.api]
+enabled = false
+
+[web.interface]
+enabled = true
+
+[tools]
+ffmpeg_path = "ffmpeg"
+
+[resolvers.external]
+yt = "yt-dlp"
+ytmusic = "yt-dlp"
+netease = "netease-cloud-music"
+qq = "qqmusic"
