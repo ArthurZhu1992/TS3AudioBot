@@ -7,6 +7,8 @@
 
 TS3AudioBot 是一个带 Web 控制台的 TeamSpeak 3 音频机器人项目，支持多机器人管理、播放队列与常用解析器集成。
 
+> 本项目正在持续完善中，欢迎 Star/Fork 关注与参与开发。
+
 ### 功能概览
 - Web 控制台：机器人管理、播放中心、队列管理
 - 多机器人并行运行
@@ -90,6 +92,25 @@ java -jar build/libs/TS3AudioBot-0.0.1-SNAPSHOT.jar
 - **FFmpeg 找不到**：确认系统 PATH，或将可执行文件放入 `ffmpeg/`
 - **yt-dlp 不可用**：安装并加入 PATH，或在配置文件中指定绝对路径
 
+### 开发规范与协作
+- 欢迎参与开发与改进！
+- 请先阅读并遵守编码规范：`doc/编码规范.md`
+
+### 贡献流程（PR / Commit / Test）
+1. **分支命名**：`feature/xxx`、`fix/xxx`、`refactor/xxx`（含简短主题）
+2. **提交信息**：推荐 `type(scope): subject`  
+   - 例：`feat(web): 支持自定义端口`  
+   - type 建议：`feat` / `fix` / `refactor` / `chore` / `docs` / `test`
+3. **PR 说明**：
+   - 背景与目标（为什么改）
+   - 主要变更（做了什么）
+   - 影响范围（可能影响到的模块）
+   - 风险与回滚（如有）
+4. **测试要求**：
+   - 变更核心逻辑必须补充/更新测试
+   - 至少保证能通过 `./gradlew test`
+   - 若无测试，说明原因与验证方式
+
 ### 高级：自定义配置路径
 可通过以下方式指定配置文件或数据库位置：
 - 环境变量：`TS3AB_CONFIG` / `TS3AB_DB`
@@ -97,3 +118,6 @@ java -jar build/libs/TS3AudioBot-0.0.1-SNAPSHOT.jar
 
 ### 致谢
 - 本项目参考了 [Manevolent/ts3j](https://github.com/Manevolent/ts3j)，特别感谢。
+
+### 许可证
+本项目采用 **Apache License 2.0**。使用、修改与分发时需保留版权声明与许可证文本。
