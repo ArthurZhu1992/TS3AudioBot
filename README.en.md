@@ -31,6 +31,10 @@ Linux / macOS:
 ./scripts/setup-tools.sh
 ```
 
+After download:
+- Keep `ffmpeg/` and `yt-dlp/` **next to the jar** (or run the app from this project root)
+- Or add the executables to PATH
+
 #### 2) External Config
 Place `ts3Audio-config.toml` **next to the jar** and edit as needed:
 ```toml

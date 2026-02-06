@@ -33,6 +33,10 @@ Linux / macOS：
 ./scripts/setup-tools.sh
 ```
 
+下载完成后建议：
+- 将 `ffmpeg/` 与 `yt-dlp/` 目录放在 **jar 同目录**（或保持在项目根目录并从此处运行）
+- 也可将可执行文件加入系统 PATH
+
 #### 2) 准备外置配置
 将 `ts3Audio-config.toml` 放到 **jar 同目录**，按需修改：
 ```toml
