@@ -16,6 +16,7 @@ enabled = true
 
 [tools]
 ffmpeg_path = "ffmpeg"
+auto_download = true
 
 [resolvers.external]
 yt = "yt-dlp"

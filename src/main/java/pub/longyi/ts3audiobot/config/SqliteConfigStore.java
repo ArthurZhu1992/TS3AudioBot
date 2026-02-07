@@ -56,6 +56,7 @@ public final class SqliteConfigStore {
             server_password TEXT NOT NULL,
             channel_password TEXT NOT NULL,
             identity TEXT NOT NULL,
+            identity_offset INTEGER NOT NULL DEFAULT 0,
             identity_key_offset INTEGER NOT NULL,
             volume_percent INTEGER NOT NULL DEFAULT 100,
             client_version TEXT NOT NULL,
@@ -72,7 +73,7 @@ public final class SqliteConfigStore {
     private static final String SQL_SELECT_SETTINGS = "SELECT key, value FROM " + TABLE_SETTINGS;
     private static final String SQL_SELECT_BOTS = """
         SELECT name, run, connect_address, channel, nickname, server_password, channel_password,
-               identity, identity_key_offset, volume_percent, client_version, client_platform, client_version_sign,
+               identity, identity_offset, identity_key_offset, volume_percent, client_version, client_platform, client_version_sign,
                client_hwid, client_nickname_phonetic, client_default_token
           FROM bots
           ORDER BY name
@@ -82,15 +83,15 @@ public final class SqliteConfigStore {
     private static final String SQL_INSERT_SETTING = "INSERT INTO settings(key, value) VALUES(?, ?)";
     private static final String SQL_INSERT_BOT = """
         INSERT INTO bots(name, run, connect_address, channel, nickname, server_password, channel_password,
-                         identity, identity_key_offset, volume_percent, client_version, client_platform,
+                         identity, identity_offset, identity_key_offset, volume_percent, client_version, client_platform,
                          client_version_sign, client_hwid, client_nickname_phonetic, client_default_token)
-        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """;
     private static final String SQL_UPSERT_BOT = """
         INSERT INTO bots(name, run, connect_address, channel, nickname, server_password, channel_password,
-                         identity, identity_key_offset, volume_percent, client_version, client_platform,
+                         identity, identity_offset, identity_key_offset, volume_percent, client_version, client_platform,
                          client_version_sign, client_hwid, client_nickname_phonetic, client_default_token)
-        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(name) DO UPDATE SET
             run = excluded.run,
             connect_address = excluded.connect_address,
@@ -99,6 +100,7 @@ public final class SqliteConfigStore {
             server_password = excluded.server_password,
             channel_password = excluded.channel_password,
             identity = excluded.identity,
+            identity_offset = excluded.identity_offset,
             identity_key_offset = excluded.identity_key_offset,
             volume_percent = excluded.volume_percent,
             client_version = excluded.client_version,
@@ -111,14 +113,14 @@ public final class SqliteConfigStore {
     private static final String SQL_DELETE_BOT = "DELETE FROM bots WHERE name = ?";
     private static final String SQL_SELECT_BOT = """
         SELECT name, run, connect_address, channel, nickname, server_password, channel_password,
-               identity, identity_key_offset, volume_percent, client_version, client_platform, client_version_sign,
+               identity, identity_offset, identity_key_offset, volume_percent, client_version, client_platform, client_version_sign,
                client_hwid, client_nickname_phonetic, client_default_token
           FROM bots
          WHERE name = ?
         """;
     private static final String SQL_UPDATE_IDENTITY = "UPDATE bots SET identity = ? WHERE name = ?";
     private static final String SQL_UPDATE_IDENTITY_OFFSET =
-        "UPDATE bots SET identity = ?, identity_key_offset = ? WHERE name = ?";
+        "UPDATE bots SET identity = ?, identity_offset = ?, identity_key_offset = ? WHERE name = ?";
     private static final String SQL_UPDATE_VOLUME = "UPDATE bots SET volume_percent = ? WHERE name = ?";
 
     private final Path dbPath;
@@ -147,6 +149,7 @@ public final class SqliteConfigStore {
             statement.execute(SQL_CREATE_SETTINGS);
             statement.execute(SQL_CREATE_BOTS);
             ensureBotVolumeColumn(connection);
+            ensureBotIdentityOffsetColumn(connection);
         } catch (SQLException ex) {
             throw new IllegalStateException("Failed to initialize sqlite schema at " + dbPath, ex);
         }
@@ -233,7 +236,7 @@ public final class SqliteConfigStore {
      * @param identity 参数 identity
      * @param identityKeyOffset 参数 identityKeyOffset
      */
-    public void updateBotIdentityAndOffset(String botName, String identity, long identityKeyOffset) {
+    public void updateBotIdentityAndOffset(String botName, String identity, long identityOffset, long identityKeyOffset) {
         if (botName == null || botName.isBlank()) {
             throw new IllegalArgumentException("botName must not be blank");
         }
@@ -243,8 +246,9 @@ public final class SqliteConfigStore {
         try (Connection connection = openConnection();
              PreparedStatement statement = connection.prepareStatement(SQL_UPDATE_IDENTITY_OFFSET)) {
             statement.setString(1, identity);
-            statement.setLong(2, identityKeyOffset);
-            statement.setString(3, botName);
+            statement.setLong(2, identityOffset);
+            statement.setLong(3, identityKeyOffset);
+            statement.setString(4, botName);
             int updated = statement.executeUpdate();
             if (updated == 0) {
                 log.warn("No bot row updated for identity+offset name={}", botName);
@@ -316,6 +320,7 @@ public final class SqliteConfigStore {
                     rs.getString("server_password"),
                     rs.getString("channel_password"),
                     rs.getString("identity"),
+                    rs.getLong("identity_offset"),
                     rs.getLong("identity_key_offset"),
                     rs.getInt("volume_percent"),
                     rs.getString("client_version"),
@@ -416,6 +421,29 @@ public final class SqliteConfigStore {
         }
     }
 
+    private void ensureBotIdentityOffsetColumn(Connection connection) throws SQLException {
+        if (connection == null) {
+            return;
+        }
+        boolean hasColumn = false;
+        try (Statement statement = connection.createStatement();
+             ResultSet rs = statement.executeQuery("PRAGMA table_info(bots)")) {
+            while (rs.next()) {
+                String name = rs.getString("name");
+                if ("identity_offset".equalsIgnoreCase(name)) {
+                    hasColumn = true;
+                    break;
+                }
+            }
+        }
+        if (hasColumn) {
+            return;
+        }
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("ALTER TABLE bots ADD COLUMN identity_offset INTEGER NOT NULL DEFAULT 0");
+        }
+    }
+
     private boolean hasRows(Statement statement, String sql) throws SQLException {
         try (ResultSet rs = statement.executeQuery(sql)) {
             if (!rs.next()) {
@@ -450,6 +478,7 @@ public final class SqliteConfigStore {
                     rs.getString("server_password"),
                     rs.getString("channel_password"),
                     rs.getString("identity"),
+                    rs.getLong("identity_offset"),
                     rs.getLong("identity_key_offset"),
                     rs.getInt("volume_percent"),
                     rs.getString("client_version"),
@@ -506,14 +535,15 @@ public final class SqliteConfigStore {
         statement.setString(6, safe(bot.serverPassword));
         statement.setString(7, safe(bot.channelPassword));
         statement.setString(8, safe(bot.identity));
-        statement.setLong(9, bot.identityKeyOffset);
-        statement.setInt(10, bot.volumePercent);
-        statement.setString(11, safe(bot.clientVersion));
-        statement.setString(12, safe(bot.clientPlatform));
-        statement.setString(13, safe(bot.clientVersionSign));
-        statement.setString(14, safe(bot.clientHwid));
-        statement.setString(15, safe(bot.clientNicknamePhonetic));
-        statement.setString(16, safe(bot.clientDefaultToken));
+        statement.setLong(9, bot.identityOffset);
+        statement.setLong(10, bot.identityKeyOffset);
+        statement.setInt(11, bot.volumePercent);
+        statement.setString(12, safe(bot.clientVersion));
+        statement.setString(13, safe(bot.clientPlatform));
+        statement.setString(14, safe(bot.clientVersionSign));
+        statement.setString(15, safe(bot.clientHwid));
+        statement.setString(16, safe(bot.clientNicknamePhonetic));
+        statement.setString(17, safe(bot.clientDefaultToken));
     }
 
     private String safe(String value) {

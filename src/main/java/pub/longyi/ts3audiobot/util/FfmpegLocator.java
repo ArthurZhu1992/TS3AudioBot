@@ -5,7 +5,11 @@ import lombok.extern.slf4j.Slf4j;
 import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
@@ -52,52 +56,36 @@ public final class FfmpegLocator {
      * @return 返回值
      */
     public static String resolve(String configuredPath) {
+        return resolve(configuredPath, null, false);
+    }
+
+    public static String resolve(String configuredPath, Path configPath, boolean autoDownload) {
         String trimmed = configuredPath == null ? "" : configuredPath.trim();
+        Path baseDir = resolveBaseDir(configPath);
+
         if (!trimmed.isEmpty() && !isAuto(trimmed)) {
-            return trimmed;
+            Path configured = resolvePath(baseDir, trimmed);
+            if (Files.isRegularFile(configured)) {
+                return configured.toString();
+            }
+            Path targetDir = resolveTargetDir(baseDir, trimmed);
+            String os = detectOs();
+            String arch = detectArch();
+            if (autoDownload && (os == null || arch == null)) {
+                throw new IllegalStateException("Unsupported platform for bundled ffmpeg: os="
+                    + System.getProperty("os.name") + " arch=" + System.getProperty("os.arch"));
+            }
+            return ensureFfmpegAvailable(targetDir, trimmed, os, arch, autoDownload, false);
         }
 
-        Path baseDir = resolveBaseDir();
-        Path ffmpegDir = baseDir.resolve("ffmpeg");
-        Path found = findExistingBinary(ffmpegDir);
-        if (found != null) {
-            return found.toString();
-        }
-
+        Path ffmpegDir = resolveTargetDir(baseDir, trimmed);
         String os = detectOs();
         String arch = detectArch();
         if (os == null || arch == null) {
             throw new IllegalStateException("Unsupported platform for bundled ffmpeg: os="
                 + System.getProperty("os.name") + " arch=" + System.getProperty("os.arch"));
         }
-
-        Path archive = findArchive(ffmpegDir, os, arch);
-        if (archive == null) {
-            throw new IllegalStateException("Bundled ffmpeg archive not found in " + ffmpegDir);
-        }
-
-        Path extractedDir = ffmpegDir.resolve("extracted").resolve(os + "-" + arch);
-        if (!Files.exists(extractedDir)) {
-            try {
-                Files.createDirectories(extractedDir);
-            } catch (IOException ex) {
-                log.warn("[FFmpeg] failed to create {}", extractedDir, ex);
-                return "ffmpeg";
-            }
-        }
-
-        try {
-            extractArchive(archive, extractedDir);
-        } catch (IOException ex) {
-            throw new IllegalStateException("Failed to extract bundled ffmpeg " + archive, ex);
-        }
-
-        found = findExistingBinary(extractedDir);
-        if (found != null) {
-            return found.toString();
-        }
-
-        throw new IllegalStateException("Bundled ffmpeg extracted but binary not found under " + extractedDir);
+        return ensureFfmpegAvailable(ffmpegDir, "ffmpeg", os, arch, autoDownload, true);
     }
 
     private static boolean isAuto(String value) {
@@ -121,6 +109,41 @@ public final class FfmpegLocator {
             return workDir;
         }
         return workDir;
+    }
+
+    private static Path resolveBaseDir(Path configPath) {
+        if (configPath != null) {
+            Path parent = configPath.getParent();
+            return parent == null ? Path.of(".") : parent;
+        }
+        return resolveBaseDir();
+    }
+
+    private static Path resolveTargetDir(Path baseDir, String configuredPath) {
+        if (configuredPath == null || configuredPath.isBlank() || isAuto(configuredPath)) {
+            return baseDir.resolve("ffmpeg");
+        }
+        Path candidate = resolvePath(baseDir, configuredPath);
+        if (endsWithSeparator(configuredPath) || Files.isDirectory(candidate)) {
+            return candidate;
+        }
+        Path parent = candidate.getParent();
+        return parent == null ? baseDir : parent;
+    }
+
+    private static Path resolvePath(Path baseDir, String configuredPath) {
+        Path candidate = Path.of(configuredPath);
+        if (!candidate.isAbsolute()) {
+            candidate = baseDir.resolve(candidate).normalize();
+        }
+        return candidate;
+    }
+
+    private static boolean endsWithSeparator(String value) {
+        if (value == null || value.isEmpty()) {
+            return false;
+        }
+        return value.endsWith("/") || value.endsWith("\\");
     }
 
     private static String detectOs() {
@@ -201,6 +224,114 @@ public final class FfmpegLocator {
             return best;
         } catch (IOException ex) {
             return null;
+        }
+    }
+
+    private static String ensureFfmpegAvailable(
+        Path ffmpegDir,
+        String fallback,
+        String os,
+        String arch,
+        boolean allowDownload,
+        boolean strictMissingArchive
+    ) {
+        if (os == null || arch == null) {
+            if (allowDownload || strictMissingArchive) {
+                throw new IllegalStateException("Unsupported platform for bundled ffmpeg: os="
+                    + System.getProperty("os.name") + " arch=" + System.getProperty("os.arch"));
+            }
+            log.warn("[FFmpeg] unsupported platform, using {}", fallback);
+            return fallback;
+        }
+        Path found = findExistingBinary(ffmpegDir);
+        if (found != null) {
+            return found.toString();
+        }
+        Path archive = findArchive(ffmpegDir, os, arch);
+        if (archive == null && allowDownload) {
+            archive = downloadArchive(ffmpegDir, os, arch);
+        }
+        if (archive == null) {
+            if (strictMissingArchive) {
+                throw new IllegalStateException("Bundled ffmpeg archive not found in " + ffmpegDir);
+            }
+            log.warn("[FFmpeg] bundled archive not found under {}, using {}", ffmpegDir, fallback);
+            return fallback;
+        }
+        try {
+            extractArchive(archive, ffmpegDir);
+        } catch (IOException ex) {
+            throw new IllegalStateException("Failed to extract bundled ffmpeg " + archive, ex);
+        }
+        deleteArchiveQuietly(archive);
+        found = findExistingBinary(ffmpegDir);
+        if (found != null) {
+            return found.toString();
+        }
+        if (strictMissingArchive) {
+            throw new IllegalStateException("Bundled ffmpeg extracted but binary not found under " + ffmpegDir);
+        }
+        log.warn("[FFmpeg] bundled binary not found under {}, using {}", ffmpegDir, fallback);
+        return fallback;
+    }
+
+    private static Path downloadArchive(Path ffmpegDir, String os, String arch) {
+        String url = buildArchiveUrl(os, arch);
+        if (url == null) {
+            return null;
+        }
+        String fileName = url.substring(url.lastIndexOf('/') + 1);
+        Path out = ffmpegDir.resolve(fileName);
+        try {
+            Files.createDirectories(ffmpegDir);
+            downloadTo(url, out);
+            return out;
+        } catch (IOException ex) {
+            log.warn("[FFmpeg] failed to download {}: {}", url, ex.getMessage());
+            return null;
+        }
+    }
+
+    private static String buildArchiveUrl(String os, String arch) {
+        if ("windows".equals(os)) {
+            return "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
+        }
+        if ("linux".equals(os)) {
+            if ("arm64".equals(arch)) {
+                return "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-arm64-static.tar.xz";
+            }
+            if ("amd64".equals(arch)) {
+                return "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz";
+            }
+        }
+        return null;
+    }
+
+    private static void downloadTo(String url, Path out) throws IOException {
+        HttpClient client = HttpClient.newBuilder()
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .build();
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url)).GET().build();
+        try {
+            HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            int status = response.statusCode();
+            if (status < 200 || status >= 300) {
+                throw new IOException("HTTP " + status);
+            }
+            try (InputStream in = response.body()) {
+                Files.copy(in, out, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Download interrupted", ex);
+        }
+    }
+
+    private static void deleteArchiveQuietly(Path archive) {
+        try {
+            Files.deleteIfExists(archive);
+        } catch (IOException ex) {
+            log.warn("[FFmpeg] failed to delete archive {}", archive, ex);
         }
     }
 

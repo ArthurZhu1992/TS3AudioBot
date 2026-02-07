@@ -3,7 +3,11 @@ package pub.longyi.ts3audiobot.util;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
+import java.net.URI;
 import java.net.URISyntaxException;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -43,6 +47,10 @@ public final class CliToolLocator {
      * @return 返回值
      */
     public static String resolveYtDlp(String configured) {
+        return resolveYtDlp(configured, null, false);
+    }
+
+    public static String resolveYtDlp(String configured, Path configPath, boolean autoDownload) {
         String raw = configured == null ? "" : configured.trim();
         if (raw.isEmpty()) {
             raw = "yt-dlp";
@@ -51,27 +59,36 @@ public final class CliToolLocator {
             return raw;
         }
 
-        Path baseDir = resolveBaseDir();
+        Path baseDir = resolveBaseDir(configPath);
         if (isAuto(raw)) {
             Path bundled = findBundled(baseDir);
             if (bundled != null) {
                 ensureExecutable(bundled);
                 return bundled.toString();
             }
-            log.warn("[yt-dlp] bundled binary not found under {}", baseDir);
+        }
+        Path target = resolveTargetPath(baseDir, raw);
+        if (Files.isRegularFile(target)) {
+            ensureExecutable(target);
+            return target.toString();
+        }
+        if (!autoDownload) {
+            log.warn("[yt-dlp] configured binary not found at {}", target);
             return raw;
         }
-
-        Path candidate = Path.of(raw);
-        if (!candidate.isAbsolute()) {
-            candidate = baseDir.resolve(candidate).normalize();
+        String os = detectOs();
+        if (os == null) {
+            log.warn("[yt-dlp] unsupported platform {}, using {}", System.getProperty("os.name"), raw);
+            return raw;
         }
-        if (Files.isRegularFile(candidate)) {
-            ensureExecutable(candidate);
-            return candidate.toString();
+        try {
+            downloadYtDlp(target, os);
+            ensureExecutable(target);
+            return target.toString();
+        } catch (IOException ex) {
+            log.warn("[yt-dlp] failed to download: {}", ex.getMessage());
+            return raw;
         }
-        log.warn("[yt-dlp] configured binary not found at {}", candidate);
-        return raw;
     }
 
     private static boolean isYtDlpCommand(String value) {
@@ -103,6 +120,37 @@ public final class CliToolLocator {
             return workDir;
         }
         return workDir;
+    }
+
+    private static Path resolveBaseDir(Path configPath) {
+        if (configPath != null) {
+            Path parent = configPath.getParent();
+            return parent == null ? Path.of(".") : parent;
+        }
+        return resolveBaseDir();
+    }
+
+    private static Path resolveTargetPath(Path baseDir, String configured) {
+        String raw = configured == null ? "" : configured.trim();
+        String exeName = isWindows() ? "yt-dlp.exe" : "yt-dlp";
+        if (raw.isEmpty() || isAuto(raw)) {
+            return baseDir.resolve("yt-dlp").resolve(exeName);
+        }
+        Path candidate = Path.of(raw);
+        if (!candidate.isAbsolute()) {
+            candidate = baseDir.resolve(candidate).normalize();
+        }
+        if (Files.isDirectory(candidate) || endsWithSeparator(raw)) {
+            return candidate.resolve(exeName);
+        }
+        return candidate;
+    }
+
+    private static boolean endsWithSeparator(String value) {
+        if (value == null || value.isEmpty()) {
+            return false;
+        }
+        return value.endsWith("/") || value.endsWith("\\");
     }
 
     private static boolean hasBundled(Path baseDir) {
@@ -203,6 +251,49 @@ public final class CliToolLocator {
         }
         if (!Files.isExecutable(path)) {
             log.warn("[yt-dlp] binary is not executable: {}", path);
+        }
+    }
+
+    private static void downloadYtDlp(Path target, String os) throws IOException {
+        String url = buildDownloadUrl(os);
+        if (url == null) {
+            throw new IOException("Unsupported platform " + os);
+        }
+        Path parent = target.getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+        downloadTo(url, target);
+    }
+
+    private static String buildDownloadUrl(String os) {
+        if ("windows".equals(os)) {
+            return "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe";
+        }
+        if ("linux".equals(os)) {
+            return "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp";
+        }
+        return null;
+    }
+
+    private static void downloadTo(String url, Path out) throws IOException {
+        HttpClient client = HttpClient.newBuilder()
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .build();
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url)).GET().build();
+        try {
+            HttpResponse<java.io.InputStream> response =
+                client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            int status = response.statusCode();
+            if (status < 200 || status >= 300) {
+                throw new IOException("HTTP " + status);
+            }
+            try (java.io.InputStream in = response.body()) {
+                Files.copy(in, out, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Download interrupted", ex);
         }
     }
 }

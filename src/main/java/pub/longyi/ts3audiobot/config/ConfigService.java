@@ -53,7 +53,8 @@ public final class ConfigService {
     private static final String DEFAULT_CLIENT_PLATFORM = "Windows";
     private static final String DEFAULT_CLIENT_VERSION_SIGN =
         "JEhuVodiWr2/F9mixBcaAZTtjx4Rs9cJDLbpEG8i7hPKswcFdsn6MWwINP+Nwmw4AEPpVJevUEvRQbqVMVoLlw==";
-    private static final int DEFAULT_IDENTITY_MIN_LEVEL = 100;
+    private static final int DEFAULT_IDENTITY_MIN_LEVEL = 8;
+    private static final int MAX_IDENTITY_LEVEL = 20;
     private static final int DEFAULT_VOLUME_PERCENT = 100;
 
     private static final String KEY_BOTS_PATH = "configs.bots_path";
@@ -63,6 +64,7 @@ public final class ConfigService {
     private static final String KEY_WEB_API = "web.api.enabled";
     private static final String KEY_WEB_UI = "web.interface.enabled";
     private static final String KEY_FFMPEG = "tools.ffmpeg_path";
+    private static final String KEY_TOOLS_AUTO_DOWNLOAD = "tools.auto_download";
     private static final String KEY_RESOLVER_YT = "resolvers.external.yt";
     private static final String KEY_RESOLVER_YTMUSIC = "resolvers.external.ytmusic";
     private static final String KEY_RESOLVER_NETEASE = "resolvers.external.netease";
@@ -188,16 +190,17 @@ public final class ConfigService {
         List<String> hosts = parseHostsSetting(settings.get(KEY_WEB_HOSTS));
         boolean apiEnabled = parseBooleanSetting(settings, KEY_WEB_API, false);
         boolean uiEnabled = parseBooleanSetting(settings, KEY_WEB_UI, true);
+        boolean autoDownload = parseBooleanSetting(settings, KEY_TOOLS_AUTO_DOWNLOAD, true);
 
         String ffmpegPathRaw = getSetting(settings, KEY_FFMPEG, DEFAULT_FFMPEG_PATH);
-        String ffmpegPath = FfmpegLocator.resolve(ffmpegPathRaw);
+        String ffmpegPath = FfmpegLocator.resolve(ffmpegPathRaw, configPath, autoDownload);
         if (!ffmpegPath.equals(ffmpegPathRaw)) {
             log.info("Resolved ffmpeg path {} -> {}", ffmpegPathRaw, ffmpegPath);
         }
         String ytRaw = getSetting(settings, KEY_RESOLVER_YT, DEFAULT_YT);
         String ytmusicRaw = getSetting(settings, KEY_RESOLVER_YTMUSIC, DEFAULT_YT);
-        String yt = CliToolLocator.resolveYtDlp(ytRaw);
-        String ytmusic = CliToolLocator.resolveYtDlp(ytmusicRaw);
+        String yt = CliToolLocator.resolveYtDlp(ytRaw, configPath, autoDownload);
+        String ytmusic = CliToolLocator.resolveYtDlp(ytmusicRaw, configPath, autoDownload);
         String netease = getSetting(settings, KEY_RESOLVER_NETEASE, DEFAULT_NETEASE);
         String qq = getSetting(settings, KEY_RESOLVER_QQ, DEFAULT_QQ);
         return new ResolvedSettings(botsPath, port, hosts, apiEnabled, uiEnabled, ffmpegPath, yt, ytmusic, netease, qq);
@@ -216,16 +219,26 @@ public final class ConfigService {
             }
             int identityLen = bot.identity == null ? 0 : bot.identity.length();
             log.info(
-                "Loaded bot {} identity_len={} identity_key_offset={}",
+                "Loaded bot {} identity_len={} identity_offset={} identity_level={}",
                 bot.name,
                 identityLen,
+                bot.identityOffset,
                 bot.identityKeyOffset
             );
-            IdentityResolution resolved = resolveIdentity(configPath, bot.name, bot.identity, bot.identityKeyOffset);
-            if (resolved.persistIdentity || resolved.identityKeyOffset != bot.identityKeyOffset) {
+            IdentityResolution resolved = resolveIdentity(
+                configPath,
+                bot.name,
+                bot.identity,
+                bot.identityKeyOffset,
+                bot.identityOffset
+            );
+            if (resolved.persistIdentity
+                || resolved.identityKeyOffset != bot.identityKeyOffset
+                || resolved.identityOffset != bot.identityOffset) {
                 identityUpdates.add(new IdentityUpdate(
                     bot.name,
                     resolved.identity,
+                    resolved.identityOffset,
                     resolved.identityKeyOffset
                 ));
             }
@@ -238,6 +251,7 @@ public final class ConfigService {
                 bot.serverPassword,
                 bot.channelPassword,
                 resolved.identity,
+                resolved.identityOffset,
                 resolved.identityKeyOffset,
                 clampVolumePercent(bot.volumePercent),
                 bot.clientVersion,
@@ -260,11 +274,20 @@ public final class ConfigService {
         if (sysProp != null && !sysProp.isBlank()) {
             return Path.of(sysProp);
         }
-        Path jarDir = resolveJarDir();
-        if (jarDir != null) {
-            return jarDir.resolve(DEFAULT_CONFIG_FILE);
+        Path workDir = Path.of(System.getProperty("user.dir", "."));
+        Path workConfig = workDir.resolve(DEFAULT_CONFIG_FILE);
+        if (Files.isRegularFile(workConfig)) {
+            return workConfig;
         }
-        return Path.of(DEFAULT_CONFIG_FILE);
+        Path jarDir = resolveJarFileDir();
+        if (jarDir != null) {
+            Path jarConfig = jarDir.resolve(DEFAULT_CONFIG_FILE);
+            if (Files.isRegularFile(jarConfig)) {
+                return jarConfig;
+            }
+            return jarConfig;
+        }
+        return workConfig;
     }
 
     private static Path resolveDbPath(Path configPath, Map<String, String> externalSettings) {
@@ -303,11 +326,10 @@ public final class ConfigService {
             if (port != null) {
                 settings.put(KEY_WEB_PORT, Long.toString(port));
             }
-            Object hostsValue = toml.get("web.hosts");
-            if (hostsValue instanceof List<?>) {
-                List<?> list = (List<?>) hostsValue;
+            List<?> hostsList = toml.getList("web.hosts");
+            if (hostsList != null) {
                 List<String> hosts = new ArrayList<>();
-                for (Object item : list) {
+                for (Object item : hostsList) {
                     if (item != null) {
                         String text = item.toString().trim();
                         if (!text.isEmpty()) {
@@ -318,13 +340,15 @@ public final class ConfigService {
                 if (!hosts.isEmpty()) {
                     settings.put(KEY_WEB_HOSTS, String.join(",", hosts));
                 }
-            } else if (hostsValue instanceof String) {
-                putIfNotBlank(settings, KEY_WEB_HOSTS, (String) hostsValue);
+            } else {
+                String hostsText = toml.getString("web.hosts");
+                putIfNotBlank(settings, KEY_WEB_HOSTS, hostsText);
             }
             putIfNotBlank(settings, KEY_WEB_API, toBooleanString(toml.getBoolean("web.api.enabled")));
             putIfNotBlank(settings, KEY_WEB_UI, toBooleanString(toml.getBoolean("web.interface.enabled")));
 
             putIfNotBlank(settings, KEY_FFMPEG, toml.getString("tools.ffmpeg_path"));
+            putIfNotBlank(settings, KEY_TOOLS_AUTO_DOWNLOAD, toBooleanString(toml.getBoolean("tools.auto_download")));
             putIfNotBlank(settings, KEY_RESOLVER_YT, toml.getString("resolvers.external.yt"));
             putIfNotBlank(settings, KEY_RESOLVER_YTMUSIC, toml.getString("resolvers.external.ytmusic"));
             putIfNotBlank(settings, KEY_RESOLVER_NETEASE, toml.getString("resolvers.external.netease"));
@@ -340,15 +364,12 @@ public final class ConfigService {
         }
     }
 
-    private static Path resolveJarDir() {
+    private static Path resolveJarFileDir() {
         try {
             Path codeSource = Path.of(ConfigService.class.getProtectionDomain()
                 .getCodeSource().getLocation().toURI());
             if (Files.isRegularFile(codeSource)) {
                 return codeSource.getParent();
-            }
-            if (Files.isDirectory(codeSource)) {
-                return codeSource;
             }
             return null;
         } catch (Exception ex) {
@@ -395,7 +416,12 @@ public final class ConfigService {
             return;
         }
         for (IdentityUpdate update : updates) {
-            configStore.updateBotIdentityAndOffset(update.botName, update.identity, update.identityKeyOffset);
+            configStore.updateBotIdentityAndOffset(
+                update.botName,
+                update.identity,
+                update.identityOffset,
+                update.identityKeyOffset
+            );
         }
         log.info("Persisted TS3 identity updates to {}", configStore.getDbPath());
     }
@@ -457,53 +483,74 @@ public final class ConfigService {
         Path configPath,
         String botName,
         String identity,
-        long identityKeyOffset
+        long identityLevel,
+        long identityOffset
     ) {
         String trimmed = identity == null ? "" : identity.trim();
-        int level = (int) Math.max(DEFAULT_IDENTITY_MIN_LEVEL, identityKeyOffset);
+        int desired = clampIdentityLevel(identityLevel);
         IdentityFileData fileData = tryLoadIdentityFromFile(configPath, trimmed);
         if (fileData != null && fileData.identity != null && !fileData.identity.isBlank()) {
-            return normalizeIdentity(fileData.identity, botName, "file", level, true);
+            return normalizeIdentity(fileData.identity, botName, "file", desired, 0L, true);
         }
         if (trimmed.isBlank()) {
-            String export = TsCrypt.generateTsIdentity(level);
-            log.info("Generated new TS3 identity for bot {} (security level {})", botName, level);
-            return new IdentityResolution(export, level, true);
+            String export = generateIdentityString();
+            log.info("Generated new TS3 identity for bot {} (security level {})", botName, desired);
+            return normalizeIdentity(export, botName, "generated", desired, 0L, true);
         }
-        return normalizeIdentity(trimmed, botName, "database", level, false);
+        return normalizeIdentity(trimmed, botName, "database", desired, identityOffset, false);
     }
 
     private static IdentityResolution normalizeIdentity(
         String rawIdentity,
         String botName,
         String source,
-        int level,
+        int desiredLevel,
+        long identityOffset,
         boolean persistAlways
     ) {
         try {
-            IdentityData loaded = TsCrypt.loadIdentityDynamic(rawIdentity, level);
-            if (!TsCrypt.isTsIdentityFormat(rawIdentity)) {
-                String converted = TsCrypt.exportTsIdentity(loaded);
-                log.info("Converted TS3 identity for bot {} from {} to standard format", botName, source);
-                return new IdentityResolution(converted, loaded.validKeyOffset(), true);
+            IdentityData loaded = TsCrypt.loadIdentityDynamic(rawIdentity, 0);
+            boolean tsFormat = TsCrypt.isTsIdentityFormat(rawIdentity);
+            String normalizedIdentity = tsFormat ? loaded.publicAndPrivateKeyString() : rawIdentity;
+            boolean persist = persistAlways || tsFormat;
+            if (tsFormat) {
+                log.info("Converted TS3 identity for bot {} from {} to raw format", botName, source);
             }
-            if (loaded.validKeyOffset() < DEFAULT_IDENTITY_MIN_LEVEL) {
-                String export = TsCrypt.generateTsIdentity(level);
-                log.warn(
-                    "TS3 identity for bot {} from {} has low security level {}, generated a new one",
+            long offset = identityOffset;
+            int currentLevel = offset > 0 ? TsCrypt.computeSecurityLevel(loaded, offset) : 0;
+            if (offset <= 0 || currentLevel < desiredLevel) {
+                TsCrypt.KeyOffsetResult result = TsCrypt.findKeyOffset(loaded, desiredLevel, Math.max(0L, offset));
+                offset = result.offset();
+                persist = true;
+                log.info(
+                    "Bot {} identity offset={} level={} iterations={}",
                     botName,
-                    source,
-                    loaded.validKeyOffset()
+                    result.offset(),
+                    result.level(),
+                    result.iterations()
                 );
-                return new IdentityResolution(export, level, true);
             }
             log.info("Using TS3 identity for bot {} from {}", botName, source);
-            return new IdentityResolution(rawIdentity, loaded.validKeyOffset(), persistAlways);
+            return new IdentityResolution(normalizedIdentity, offset, desiredLevel, persist);
         } catch (RuntimeException ex) {
-            String export = TsCrypt.generateTsIdentity(level);
+            String export = generateIdentityString();
             log.warn("Invalid TS3 identity for bot {} from {}, generated a new one", botName, source, ex);
-            return new IdentityResolution(export, level, true);
+            return normalizeIdentity(export, botName, "generated", desiredLevel, 0L, true);
         }
+    }
+
+    private static String generateIdentityString() {
+        IdentityData identity = TsCrypt.generateNewIdentity(0);
+        return identity.publicAndPrivateKeyString();
+    }
+
+    private static int clampIdentityLevel(long level) {
+        int desired = (int) Math.max(DEFAULT_IDENTITY_MIN_LEVEL, level);
+        if (desired > MAX_IDENTITY_LEVEL) {
+            log.warn("Requested TS3 security level {} too high, capping to {}", desired, MAX_IDENTITY_LEVEL);
+            return MAX_IDENTITY_LEVEL;
+        }
+        return desired;
     }
 
     private static AppConfig.BotConfig applyClientDefaults(AppConfig.BotConfig bot) {
@@ -538,6 +585,7 @@ public final class ConfigService {
             bot.serverPassword,
             bot.channelPassword,
             bot.identity,
+            bot.identityOffset,
             bot.identityKeyOffset,
             clampVolumePercent(bot.volumePercent),
             clientVersion,
@@ -652,12 +700,17 @@ public final class ConfigService {
     ) {
     }
 
-    private record IdentityResolution(String identity, long identityKeyOffset, boolean persistIdentity) {
+    private record IdentityResolution(
+        String identity,
+        long identityOffset,
+        long identityKeyOffset,
+        boolean persistIdentity
+    ) {
     }
 
     private record IdentityFileData(Path path, String identity, String nickname) {
     }
 
-    private record IdentityUpdate(String botName, String identity, long identityKeyOffset) {
+    private record IdentityUpdate(String botName, String identity, long identityOffset, long identityKeyOffset) {
     }
 }

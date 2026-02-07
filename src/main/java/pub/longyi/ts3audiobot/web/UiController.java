@@ -7,6 +7,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import pub.longyi.ts3audiobot.bot.BotManager;
 import pub.longyi.ts3audiobot.config.ConfigService;
 import pub.longyi.ts3audiobot.config.AppConfig;
+import pub.longyi.ts3audiobot.ts3.full.IdentityData;
+import pub.longyi.ts3audiobot.ts3.full.TsCrypt;
 import java.util.List;
 import java.util.Map;
 import pub.longyi.ts3audiobot.queue.QueueService;
@@ -57,7 +59,11 @@ public final class UiController {
     @GetMapping("/")
     public String index(Model model) {
         List<AppConfig.BotConfig> bots = configService.loadBots();
+        if (bots == null) {
+            bots = List.of();
+        }
         Map<String, String> statuses = new java.util.HashMap<>();
+        Map<String, Integer> identityLevels = new java.util.HashMap<>();
         for (AppConfig.BotConfig bot : bots) {
             String name = bot.name;
             var instance = botManager.get(name);
@@ -66,9 +72,18 @@ public final class UiController {
             } else {
                 statuses.put(name, "STOPPED");
             }
+            if (bot.identity != null && !bot.identity.isBlank() && bot.identityOffset > 0) {
+                try {
+                    IdentityData identity = TsCrypt.loadIdentityDynamic(bot.identity, 0);
+                    int level = TsCrypt.computeSecurityLevel(identity, bot.identityOffset);
+                    identityLevels.put(name, level);
+                } catch (RuntimeException ex) {
+                }
+            }
         }
         model.addAttribute("bots", bots);
         model.addAttribute("statuses", statuses);
+        model.addAttribute("identityLevels", identityLevels);
         return "index";
     }
 

@@ -66,6 +66,8 @@ public final class BotInstance {
     private static final int DEFAULT_VOLUME_PERCENT = 100;
     private static final int MIN_VOLUME_PERCENT = 0;
     private static final int MAX_VOLUME_PERCENT = 100;
+    private static final int DEFAULT_IDENTITY_LEVEL = 8;
+    private static final int MAX_IDENTITY_LEVEL = 20;
 
     /**
      * 创建 BotInstance 实例。
@@ -421,11 +423,28 @@ public final class BotInstance {
     }
 
     private ConnectionDataFull buildConnectionData() {
+        int desiredLevel = (int) Math.max(DEFAULT_IDENTITY_LEVEL, config.identityKeyOffset);
+        if (desiredLevel > MAX_IDENTITY_LEVEL) {
+            log.warn("Bot {} identity level {} too high, capping to {}", id, desiredLevel, MAX_IDENTITY_LEVEL);
+            desiredLevel = MAX_IDENTITY_LEVEL;
+        }
         IdentityData identity;
         if (config.identity != null && !config.identity.isBlank()) {
-            identity = TsCrypt.loadIdentityDynamic(config.identity, config.identityKeyOffset);
+            identity = TsCrypt.loadIdentityDynamic(config.identity, 0);
         } else {
-            identity = TsCrypt.generateNewIdentity((int) config.identityKeyOffset);
+            identity = TsCrypt.generateNewIdentity(0);
+        }
+        long offset = Math.max(0L, config.identityOffset);
+        int currentLevel = offset > 0 ? TsCrypt.computeSecurityLevel(identity, offset) : 0;
+        TsCrypt.KeyOffsetResult result = null;
+        if (offset <= 0 || currentLevel < desiredLevel) {
+            result = TsCrypt.findKeyOffset(identity, desiredLevel, Math.max(0L, offset));
+            offset = result.offset();
+        }
+        identity.setValidKeyOffset(offset);
+        identity.setLastCheckedKeyOffset(offset);
+        if (result != null && result.iterations() > 0) {
+            log.info("Bot {} identity offset={} level={} iterations={}", id, result.offset(), result.level(), result.iterations());
         }
         TsVersionSigned version = TsVersionSigned.defaultForOs();
         if (config.clientVersionSign != null && !config.clientVersionSign.isBlank()) {

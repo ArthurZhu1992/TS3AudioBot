@@ -267,7 +267,7 @@
             <div class="card shadow-sm">
                 <div class="card-header d-flex align-items-center justify-content-between">
                     <span class="fw-semibold">机器人列表</span>
-                    <span class="text-muted small" th:text="|共 ${#lists.size(bots)} 个|">共 0 个</span>
+                    <span class="text-muted small" th:text="|共 ${bots == null ? 0 : #lists.size(bots)} 个|">共 0 个</span>
                 </div>
                 <div class="table-responsive">
                     <table class="table table-hover align-middle mb-0">
@@ -281,7 +281,7 @@
                         </tr>
                         </thead>
                         <tbody>
-                        <tr th:each="bot : ${bots}">
+                        <tr th:each="bot : ${bots == null ? T(java.util.Collections).emptyList() : bots}">
                             <td class="fw-semibold" th:text="${bot.name}">bot</td>
                             <td>
                                 <span class="badge text-bg-secondary status-badge" th:text="${statuses[bot.name]}" th:attr="data-status=${statuses[bot.name]}">status</span>
@@ -297,7 +297,7 @@
                                 </div>
                             </td>
                         </tr>
-                        <tr th:if="${#lists.isEmpty(bots)}">
+                        <tr th:if="${bots == null || #lists.isEmpty(bots)}">
                             <td colspan="5" class="text-center text-muted py-4">暂无机器人，请先创建。</td>
                         </tr>
                         </tbody>

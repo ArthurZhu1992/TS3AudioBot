@@ -793,6 +793,73 @@ public final class TsCrypt {
 
 
     /**
+     * 执行 findKeyOffset 操作。
+     * @param identity 参数 identity
+     * @param targetLevel 参数 targetLevel
+     * @param startOffset 参数 startOffset
+     * @return 返回值
+     */
+    public static KeyOffsetResult findKeyOffset(IdentityData identity, int targetLevel, long startOffset) {
+        if (identity == null) {
+            throw new IllegalArgumentException("identity must not be null");
+        }
+        int desired = Math.max(0, targetLevel);
+        long offset = Math.max(0L, startOffset);
+        int level = computeSecurityLevel(identity, offset);
+        if (level >= desired) {
+            return new KeyOffsetResult(offset, level, 0L);
+        }
+        MessageDigest sha1 = sha1();
+        byte[] publicKey = identity.publicKeyString().getBytes(StandardCharsets.US_ASCII);
+        long iterations = 0L;
+        while (true) {
+            offset++;
+            iterations++;
+            level = computeSecurityLevel(publicKey, offset, sha1);
+            if (level >= desired) {
+                return new KeyOffsetResult(offset, level, iterations);
+            }
+        }
+    }
+
+    public static int computeSecurityLevel(IdentityData identity, long offset) {
+        MessageDigest sha1 = sha1();
+        byte[] publicKey = identity.publicKeyString().getBytes(StandardCharsets.US_ASCII);
+        return computeSecurityLevel(publicKey, offset, sha1);
+    }
+
+    private static int computeSecurityLevel(byte[] publicKey, long offset, MessageDigest sha1) {
+        sha1.reset();
+        sha1.update(publicKey);
+        sha1.update(Long.toString(offset).getBytes(StandardCharsets.US_ASCII));
+        byte[] hash = sha1.digest();
+        return countLeadingZeroBits(hash);
+    }
+
+    private static MessageDigest sha1() {
+        try {
+            return MessageDigest.getInstance("SHA-1");
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-1 digest not available", ex);
+        }
+    }
+
+    private static int countLeadingZeroBits(byte[] hash) {
+        int count = 0;
+        for (byte b : hash) {
+            int value = b & 0xFF;
+            if (value == 0) {
+                count += 8;
+                continue;
+            }
+            count += Integer.numberOfLeadingZeros(value) - 24;
+            break;
+        }
+        return count;
+    }
+
+
+    /**
      * 执行 isTsIdentityFormat 操作。
      * @param identity 参数 identity
      * @return 返回值
@@ -1030,6 +1097,9 @@ public final class TsCrypt {
      * @return 返回值
      */
     public record TempKey(byte[] publicKey, byte[] privateKey) {
+    }
+
+    public record KeyOffsetResult(long offset, int level, long iterations) {
     }
 
     private record ImportKeyResult(ECPoint publicKey, BigInteger privateKey) {

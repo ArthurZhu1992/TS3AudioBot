@@ -237,6 +237,7 @@ public final class AppConfig {
         public final String serverPassword;
         public final String channelPassword;
         public final String identity;
+        public final long identityOffset;
         public final long identityKeyOffset;
         public final int volumePercent;
         public final String clientVersion;
@@ -274,6 +275,7 @@ public final class AppConfig {
             String serverPassword,
             String channelPassword,
             String identity,
+            long identityOffset,
             long identityKeyOffset,
             int volumePercent,
             String clientVersion,
@@ -291,6 +293,7 @@ public final class AppConfig {
             this.serverPassword = serverPassword;
             this.channelPassword = channelPassword;
             this.identity = identity;
+            this.identityOffset = identityOffset;
             this.identityKeyOffset = identityKeyOffset;
             this.volumePercent = volumePercent;
             this.clientVersion = clientVersion;

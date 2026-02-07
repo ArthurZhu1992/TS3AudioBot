@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Consumer;
 
 /**
  * Created by: Arthur Zhu
@@ -67,6 +68,9 @@ public final class TsFullClient implements Ts3VoiceClient {
     private final Object responseLock = new Object();
     private volatile PendingCommand pendingCommand;
     private int returnCodeCounter = 1;
+    private volatile Consumer<ParsedCommand> errorListener;
+    private volatile Runnable loginListener;
+    private volatile Consumer<String> stopListener;
 
     private static final int MAX_PACKET_SIZE = 500;
     private static final int MAX_COMMAND_FRAGMENT = 40960;
@@ -117,6 +121,10 @@ public final class TsFullClient implements Ts3VoiceClient {
         packetHandler.setStopEvent(reason -> {
             connected = false;
             log.info("[TS3] connection closed: {}", reason);
+            Consumer<String> listener = stopListener;
+            if (listener != null) {
+                listener.accept(reason);
+            }
         });
 
         if (packetHandler.connect(endpoint, tsCrypt)) {
@@ -143,6 +151,33 @@ public final class TsFullClient implements Ts3VoiceClient {
         resetVoiceSession();
         packetHandler.stop();
         connected = false;
+    }
+
+
+    /**
+     * 执行 setErrorListener 操作。
+     * @param listener 参数 listener
+     */
+    public void setErrorListener(Consumer<ParsedCommand> listener) {
+        this.errorListener = listener;
+    }
+
+
+    /**
+     * 执行 setLoginListener 操作。
+     * @param listener 参数 listener
+     */
+    public void setLoginListener(Runnable listener) {
+        this.loginListener = listener;
+    }
+
+
+    /**
+     * 执行 setStopListener 操作。
+     * @param listener 参数 listener
+     */
+    public void setStopListener(Consumer<String> listener) {
+        this.stopListener = listener;
     }
 
 
@@ -512,6 +547,10 @@ public final class TsFullClient implements Ts3VoiceClient {
         updateCodec(cmd);
         connected = true;
         log.info("[TS3] login complete");
+        Runnable listener = loginListener;
+        if (listener != null) {
+            listener.run();
+        }
         scheduleChannelListPrint();
     }
 
@@ -999,6 +1038,16 @@ public final class TsFullClient implements Ts3VoiceClient {
     private void collectCommandResponse(ParsedCommand cmd) {
         PendingCommand pending = pendingCommand;
         if (pending == null || cmd == null) {
+            if (cmd != null && "error".equalsIgnoreCase(cmd.name())) {
+                String returnCodeRaw = cmd.params().get("return_code");
+                String errorId = cmd.params().get("id");
+                String msg = cmd.params().get("msg");
+                log.info("[TS3] error return_code={} id={} msg={}", returnCodeRaw, errorId, msg);
+                Consumer<ParsedCommand> listener = errorListener;
+                if (listener != null) {
+                    listener.accept(cmd);
+                }
+            }
             return;
         }
         String name = cmd.name();
@@ -1021,6 +1070,10 @@ public final class TsFullClient implements Ts3VoiceClient {
             String errorId = cmd.params().get("id");
             String msg = cmd.params().get("msg");
             log.info("[TS3] error return_code={} id={} msg={}", returnCodeRaw, errorId, msg);
+            Consumer<ParsedCommand> listener = errorListener;
+            if (listener != null) {
+                listener.accept(cmd);
+            }
             if (code == null || code == pending.returnCode) {
                 pending.future.complete(new CommandResponse(pending.returnCode, List.copyOf(pending.commands), cmd));
                 synchronized (responseLock) {
