@@ -196,6 +196,8 @@ public final class InternalBotController {
 
         }
         Track track = bot.currentTrack();
+        String currentPlaylist = bot.currentPlaylistId();
+        String currentItemId = bot.currentItemId();
         return ResponseEntity.ok(new PlaybackState(
             bot.status().name(),
             bot.isPlaying(),
@@ -205,7 +207,9 @@ public final class InternalBotController {
             bot.playbackDurationMs(),
             bot.volumePercent(),
             track == null ? "" : track.title(),
-            track == null ? "" : track.sourceType()
+            track == null ? "" : track.sourceType(),
+            currentPlaylist == null ? "" : currentPlaylist,
+            currentItemId == null ? "" : currentItemId
         ));
     }
 
@@ -296,7 +300,9 @@ public final class InternalBotController {
         long durationMs,
         int volumePercent,
         String title,
-        String sourceType
+        String sourceType,
+        String playlistId,
+        String itemId
     ) {
     }
 

@@ -81,12 +81,21 @@ public final class InternalQueueController {
      */
     @PostMapping("/{botId}/add")
     public ResponseEntity<?> add(@PathVariable String botId, @RequestBody AddRequest request) {
-        Optional<Track> track = resolveTrack(request.query());
-        if (track.isEmpty()) {
-            return ResponseEntity.badRequest().body("No resolver could handle the query");
+        List<String> queries = normalizeQueries(request);
+        if (queries.isEmpty()) {
+            return ResponseEntity.badRequest().body("Query is required");
         }
-        Track resolved = applyWebsiteSourceType(request.query(), track.get());
-        return ResponseEntity.ok(queueService.add(botId, resolved, request.addedBy()));
+        if (queries.size() == 1) {
+            String query = queries.get(0);
+            Optional<Track> track = resolveTrack(query);
+            if (track.isEmpty()) {
+                return ResponseEntity.badRequest().body("No resolver could handle the query");
+            }
+            Track resolved = applyWebsiteSourceType(query, track.get());
+            return ResponseEntity.ok(queueService.add(botId, resolved, request.addedBy()));
+        }
+        BatchAddResponse response = addBatch(botId, null, queries, request.addedBy());
+        return ResponseEntity.ok(response);
     }
 
 
@@ -103,12 +112,21 @@ public final class InternalQueueController {
         @PathVariable String playlistId,
         @RequestBody AddRequest request
     ) {
-        Optional<Track> track = resolveTrack(request.query());
-        if (track.isEmpty()) {
-            return ResponseEntity.badRequest().body("No resolver could handle the query");
+        List<String> queries = normalizeQueries(request);
+        if (queries.isEmpty()) {
+            return ResponseEntity.badRequest().body("Query is required");
         }
-        Track resolved = applyWebsiteSourceType(request.query(), track.get());
-        return ResponseEntity.ok(queueService.add(botId, playlistId, resolved, request.addedBy()));
+        if (queries.size() == 1) {
+            String query = queries.get(0);
+            Optional<Track> track = resolveTrack(query);
+            if (track.isEmpty()) {
+                return ResponseEntity.badRequest().body("No resolver could handle the query");
+            }
+            Track resolved = applyWebsiteSourceType(query, track.get());
+            return ResponseEntity.ok(queueService.add(botId, playlistId, resolved, request.addedBy()));
+        }
+        BatchAddResponse response = addBatch(botId, playlistId, queries, request.addedBy());
+        return ResponseEntity.ok(response);
     }
 
 
@@ -258,6 +276,13 @@ public final class InternalQueueController {
         if (website == null || website.isBlank()) {
             return track;
         }
+        String sourceType = track.sourceType();
+        if (sourceType != null) {
+            String lower = sourceType.trim().toLowerCase();
+            if (lower.equals("yt") || lower.equals("ytmusic")) {
+                return track;
+            }
+        }
         if (website.equalsIgnoreCase(track.sourceType())) {
             return track;
         }
@@ -269,6 +294,45 @@ public final class InternalQueueController {
             track.streamUrl(),
             track.durationMs()
         );
+    }
+
+    private BatchAddResponse addBatch(String botId, String playlistId, List<String> queries, String addedBy) {
+        List<QueueItem> added = new java.util.ArrayList<>();
+        List<AddFailure> failed = new java.util.ArrayList<>();
+        for (String query : queries) {
+            if (query == null || query.isBlank()) {
+                continue;
+            }
+            Optional<Track> track = resolveTrack(query);
+            if (track.isEmpty()) {
+                failed.add(new AddFailure(query, "No resolver could handle the query"));
+                continue;
+            }
+            Track resolved = applyWebsiteSourceType(query, track.get());
+            QueueItem item = playlistId == null
+                ? queueService.add(botId, resolved, addedBy)
+                : queueService.add(botId, playlistId, resolved, addedBy);
+            added.add(item);
+        }
+        return new BatchAddResponse(added, failed);
+    }
+
+    private List<String> normalizeQueries(AddRequest request) {
+        if (request == null) {
+            return List.of();
+        }
+        List<String> result = new java.util.ArrayList<>();
+        if (request.query() != null && !request.query().isBlank()) {
+            result.add(request.query().trim());
+        }
+        if (request.queries() != null) {
+            for (String query : request.queries()) {
+                if (query != null && !query.isBlank()) {
+                    result.add(query.trim());
+                }
+            }
+        }
+        return result;
     }
 
     private String resolveWebsiteName(String query) {
@@ -336,7 +400,7 @@ public final class InternalQueueController {
      * @param addedBy 参数 addedBy
      * @return 返回值
      */
-    public record AddRequest(String query, String addedBy) {
+    public record AddRequest(String query, List<String> queries, String addedBy) {
     }
 
 
@@ -366,5 +430,25 @@ public final class InternalQueueController {
      * @return 返回值
      */
     public record PlaylistView(String name, boolean active) {
+    }
+
+
+    /**
+     * 执行 BatchAddResponse 操作。
+     * @param added 参数 added
+     * @param failed 参数 failed
+     * @return 返回值
+     */
+    public record BatchAddResponse(List<QueueItem> added, List<AddFailure> failed) {
+    }
+
+
+    /**
+     * 执行 AddFailure 操作。
+     * @param query 参数 query
+     * @param reason 参数 reason
+     * @return 返回值
+     */
+    public record AddFailure(String query, String reason) {
     }
 }

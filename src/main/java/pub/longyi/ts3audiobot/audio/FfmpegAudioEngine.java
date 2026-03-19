@@ -39,6 +39,8 @@ public final class FfmpegAudioEngine implements AudioEngine {
     private static final int OPUS_MAX_BITRATE = 192000;
     private static final String SOURCE_YT = "yt";
     private static final String SOURCE_YTMUSIC = "ytmusic";
+    private static final String SOURCE_YT_DISPLAY = "youtube";
+    private static final String SOURCE_YTMUSIC_DISPLAY = "youtube music";
     private static final String YT_DLP_FORMAT = "bestaudio";
     private static final String YT_DLP_OUTPUT = "-";
     private static final String YT_DLP_ENCODING = "UTF-8";
@@ -308,19 +310,30 @@ public final class FfmpegAudioEngine implements AudioEngine {
     }
 
     private boolean isYtSource(String sourceType) {
-        if (sourceType == null) {
-            return false;
-        }
-        String lower = sourceType.trim().toLowerCase();
-        return SOURCE_YT.equals(lower) || SOURCE_YTMUSIC.equals(lower);
+        String normalized = normalizeSourceType(sourceType);
+        return SOURCE_YT.equals(normalized) || SOURCE_YTMUSIC.equals(normalized);
     }
 
     private String resolveYtCommand(String sourceType) {
-        String lower = sourceType == null ? "" : sourceType.trim().toLowerCase();
-        if (SOURCE_YTMUSIC.equals(lower)) {
+        String normalized = normalizeSourceType(sourceType);
+        if (SOURCE_YTMUSIC.equals(normalized)) {
             return ytMusicPath;
         }
         return ytDlpPath;
+    }
+
+    private String normalizeSourceType(String sourceType) {
+        if (sourceType == null) {
+            return "";
+        }
+        String lower = sourceType.trim().toLowerCase();
+        if (SOURCE_YT_DISPLAY.equals(lower)) {
+            return SOURCE_YT;
+        }
+        if (SOURCE_YTMUSIC_DISPLAY.equals(lower)) {
+            return SOURCE_YTMUSIC;
+        }
+        return lower;
     }
 
     private List<String> buildYtDlpPipeArgs(String command, String sourceId) {

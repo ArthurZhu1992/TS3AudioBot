@@ -47,6 +47,8 @@ public final class ConfigService {
     private static final String DEFAULT_YT = "yt-dlp";
     private static final String DEFAULT_NETEASE = "netease-cloud-music";
     private static final String DEFAULT_QQ = "qqmusic";
+    private static final String DEFAULT_SEARCH_SECRET = "";
+    private static final int DEFAULT_SEARCH_CACHE_SECONDS = 120;
     private static final int DEFAULT_WEB_PORT = 58913;
     private static final List<String> DEFAULT_HOSTS = List.of("*");
     private static final String DEFAULT_CLIENT_VERSION = "3.6.2 [Build: 1695203293]";
@@ -69,6 +71,8 @@ public final class ConfigService {
     private static final String KEY_RESOLVER_YTMUSIC = "resolvers.external.ytmusic";
     private static final String KEY_RESOLVER_NETEASE = "resolvers.external.netease";
     private static final String KEY_RESOLVER_QQ = "resolvers.external.qq";
+    private static final String KEY_SEARCH_SECRET = "search.auth_secret";
+    private static final String KEY_SEARCH_CACHE_SECONDS = "search.cache_seconds";
 
     private static final Pattern INI_KEY_VALUE = Pattern.compile("^([^=]+)=(.*)$");
 
@@ -174,6 +178,7 @@ public final class ConfigService {
                 new AppConfig.WebInterface(resolved.uiEnabled)
             ),
             new AppConfig.Tools(resolved.ffmpegPath),
+            new AppConfig.Search(resolved.searchSecret, resolved.searchCacheSeconds),
             new AppConfig.Resolvers(new AppConfig.ExternalResolvers(
                 resolved.yt,
                 resolved.ytmusic,
@@ -191,6 +196,8 @@ public final class ConfigService {
         boolean apiEnabled = parseBooleanSetting(settings, KEY_WEB_API, false);
         boolean uiEnabled = parseBooleanSetting(settings, KEY_WEB_UI, true);
         boolean autoDownload = parseBooleanSetting(settings, KEY_TOOLS_AUTO_DOWNLOAD, true);
+        String searchSecret = getSetting(settings, KEY_SEARCH_SECRET, DEFAULT_SEARCH_SECRET);
+        int searchCacheSeconds = parseIntSetting(settings, KEY_SEARCH_CACHE_SECONDS, DEFAULT_SEARCH_CACHE_SECONDS);
 
         String ffmpegPathRaw = getSetting(settings, KEY_FFMPEG, DEFAULT_FFMPEG_PATH);
         String ffmpegPath = FfmpegLocator.resolve(ffmpegPathRaw, configPath, autoDownload);
@@ -203,7 +210,20 @@ public final class ConfigService {
         String ytmusic = CliToolLocator.resolveYtDlp(ytmusicRaw, configPath, autoDownload);
         String netease = getSetting(settings, KEY_RESOLVER_NETEASE, DEFAULT_NETEASE);
         String qq = getSetting(settings, KEY_RESOLVER_QQ, DEFAULT_QQ);
-        return new ResolvedSettings(botsPath, port, hosts, apiEnabled, uiEnabled, ffmpegPath, yt, ytmusic, netease, qq);
+        return new ResolvedSettings(
+            botsPath,
+            port,
+            hosts,
+            apiEnabled,
+            uiEnabled,
+            ffmpegPath,
+            yt,
+            ytmusic,
+            netease,
+            qq,
+            searchSecret,
+            searchCacheSeconds
+        );
     }
 
     private List<AppConfig.BotConfig> resolveBots(
@@ -353,6 +373,11 @@ public final class ConfigService {
             putIfNotBlank(settings, KEY_RESOLVER_YTMUSIC, toml.getString("resolvers.external.ytmusic"));
             putIfNotBlank(settings, KEY_RESOLVER_NETEASE, toml.getString("resolvers.external.netease"));
             putIfNotBlank(settings, KEY_RESOLVER_QQ, toml.getString("resolvers.external.qq"));
+            putIfNotBlank(settings, KEY_SEARCH_SECRET, toml.getString("search.auth_secret"));
+            Long cacheSeconds = toml.getLong("search.cache_seconds");
+            if (cacheSeconds != null) {
+                settings.put(KEY_SEARCH_CACHE_SECONDS, Long.toString(cacheSeconds));
+            }
 
             if (!settings.isEmpty()) {
                 log.info("Loaded external config from {}", configPath.toAbsolutePath());
@@ -696,7 +721,9 @@ public final class ConfigService {
         String yt,
         String ytmusic,
         String netease,
-        String qq
+        String qq,
+        String searchSecret,
+        int searchCacheSeconds
     ) {
     }
 

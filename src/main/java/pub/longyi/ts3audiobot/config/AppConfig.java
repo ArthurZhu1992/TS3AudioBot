@@ -26,6 +26,7 @@ public final class AppConfig {
     public final Configs configs;
     public final Web web;
     public final Tools tools;
+    public final Search search;
     public final Resolvers resolvers;
     public final List<BotConfig> bots;
 
@@ -38,10 +39,11 @@ public final class AppConfig {
      * @param resolvers 参数 resolvers
      * @param bots 参数 bots
      */
-    public AppConfig(Configs configs, Web web, Tools tools, Resolvers resolvers, List<BotConfig> bots) {
+    public AppConfig(Configs configs, Web web, Tools tools, Search search, Resolvers resolvers, List<BotConfig> bots) {
         this.configs = configs;
         this.web = web;
         this.tools = tools;
+        this.search = search;
         this.resolvers = resolvers;
         this.bots = bots == null ? new ArrayList<>() : new ArrayList<>(bots);
     }
@@ -167,6 +169,29 @@ public final class AppConfig {
          */
         public Tools(String ffmpegPath) {
             this.ffmpegPath = ffmpegPath;
+        }
+    }
+
+
+    /**
+     * Search 相关功能。
+     *
+     * <p>职责：保存搜索与登录相关配置。</p>
+     * <p>线程安全：无显式保证。</p>
+     * <p>约束：调用方需遵守方法契约。</p>
+     */
+    public static final class Search {
+        public final String authSecret;
+        public final int cacheSeconds;
+
+        /**
+         * 创建 Search 实例。
+         * @param authSecret 参数 authSecret
+         * @param cacheSeconds 参数 cacheSeconds
+         */
+        public Search(String authSecret, int cacheSeconds) {
+            this.authSecret = authSecret;
+            this.cacheSeconds = cacheSeconds;
         }
     }
 

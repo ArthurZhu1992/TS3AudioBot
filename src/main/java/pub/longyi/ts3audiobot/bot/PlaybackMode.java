@@ -21,7 +21,8 @@ package pub.longyi.ts3audiobot.bot;
 public enum PlaybackMode {
     ORDER,
     RANDOM,
-    LOOP;
+    LOOP,
+    LIST_LOOP;
 
     /**
      * 执行 from 操作。
@@ -35,6 +36,7 @@ public enum PlaybackMode {
         return switch (raw.trim().toLowerCase()) {
             case "random", "shuffle" -> RANDOM;
             case "loop", "repeat" -> LOOP;
+            case "list", "listloop", "list_loop", "repeatall", "repeat_all" -> LIST_LOOP;
             default -> ORDER;
         };
     }

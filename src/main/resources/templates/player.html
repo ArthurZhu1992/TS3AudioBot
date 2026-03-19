@@ -28,7 +28,19 @@
             background: linear-gradient(135deg, var(--dark) 0%, var(--dark-2) 100%);
             color: var(--light);
             min-height: 100vh;
+            display: flex;
+            flex-direction: column;
             font-family: "Manrope", "Microsoft YaHei", "PingFang SC", sans-serif;
+        }
+
+        main.container {
+            flex: 1 0 auto;
+            min-height: 0;
+            width: 100%;
+        }
+
+        footer {
+            margin-top: auto;
         }
 
         .navbar {
@@ -173,8 +185,98 @@
             color: rgba(248, 250, 252, 0.78) !important;
         }
 
+        .search-tabs .nav-link {
+            color: var(--muted);
+            font-weight: 600;
+        }
+
+        .search-tabs .nav-link.active {
+            background: rgba(67, 97, 238, 0.2);
+            color: var(--accent);
+        }
+
+        .search-tabs .nav-link.locked {
+            opacity: 0.6;
+        }
+
+        .search-result {
+            display: flex;
+            gap: 12px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            align-items: center;
+        }
+
+        .search-result + .search-result {
+            margin-top: 10px;
+        }
+
+        .search-cover {
+            width: 54px;
+            height: 54px;
+            border-radius: 8px;
+            object-fit: cover;
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .search-meta {
+            min-width: 0;
+            flex: 1;
+        }
+
+        .search-title {
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            color: #f8fafc;
+        }
+
+        .search-sub {
+            font-size: 0.85rem;
+            color: rgba(226, 232, 240, 0.85);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .search-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .search-scroll {
+            max-height: clamp(260px, 45vh, 520px);
+            overflow-y: auto;
+        }
+
+        .search-placeholder {
+            border: 1px dashed rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            padding: 20px;
+            text-align: center;
+            color: var(--muted);
+        }
+
+        .search-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .search-pagination {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
         .mini-queue {
-            max-height: 280px;
+            max-height: clamp(220px, 38vh, 420px);
             overflow-y: auto;
         }
 
@@ -465,8 +567,61 @@
                         <button id="mode-order" class="btn btn-outline-light" type="button"><i class="fas fa-list"></i> 顺序播放</button>
                         <button id="mode-random" class="btn btn-outline-light" type="button"><i class="fas fa-random"></i> 随机播放</button>
                         <button id="mode-loop" class="btn btn-outline-light" type="button"><i class="fas fa-redo"></i> 单曲循环</button>
+                        <button id="mode-list" class="btn btn-outline-light" type="button"><i class="fas fa-retweet"></i> 列表循环</button>
                     </div>
 
+                </div>
+            </div>
+
+            <div class="card shadow-sm mb-4" id="search-card">
+                <div class="card-header d-flex flex-wrap gap-2 align-items-center justify-content-between">
+                    <span class="fw-semibold"><i class="fas fa-search"></i> 搜索与歌单</span>
+                    <div class="btn-group btn-group-sm" role="group" aria-label="search-view">
+                        <button id="search-view-results" class="btn btn-outline-light" type="button">搜索结果</button>
+                        <button id="search-view-playlists" class="btn btn-outline-light" type="button">我的歌单</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+                        <input id="search-query" class="form-control" style="min-width: 220px; flex: 1;" type="text" placeholder="输入关键词搜索..." />
+                        <button id="search-btn" class="btn btn-success" type="button"><i class="fas fa-search"></i> 搜索</button>
+                        <button id="search-clear" class="btn btn-outline-light" type="button">清空</button>
+                        <select id="search-page-size" class="form-select" style="width: 120px;">
+                            <option value="10">10/页</option>
+                            <option value="20">20/页</option>
+                            <option value="30" selected>30/页</option>
+                            <option value="50">50/页</option>
+                        </select>
+                    </div>
+
+                    <ul class="nav nav-pills search-tabs mb-3" id="search-tabs"></ul>
+
+                    <div id="search-login-panel" class="search-placeholder d-none mb-3">
+                        <div class="mb-2">当前平台需要登录后才能使用搜索与歌单功能。</div>
+                        <button id="search-login-btn" class="btn btn-primary btn-sm" type="button">立即登录</button>
+                    </div>
+
+                    <div id="search-breadcrumb" class="text-muted small mb-2 d-none"></div>
+
+                    <div id="search-results" class="search-scroll"></div>
+                    <div id="search-playlists" class="search-scroll d-none"></div>
+                    <div id="search-tracks" class="search-scroll d-none"></div>
+
+                    <div class="search-toolbar mt-3">
+                        <div class="text-muted small">已选 <span id="selected-count">0</span></div>
+                        <div id="search-detail-status" class="text-muted small d-none">正在加载详情...</div>
+                        <div class="d-flex flex-wrap gap-2">
+                            <button id="select-all-page" class="btn btn-outline-light btn-sm" type="button">全选当前页</button>
+                            <button id="clear-selection" class="btn btn-outline-light btn-sm" type="button">清空选择</button>
+                            <button id="add-selected" class="btn btn-success btn-sm" type="button">添加选中</button>
+                        </div>
+                    </div>
+
+                    <div class="search-pagination mt-3">
+                        <button id="search-prev" class="btn btn-outline-light btn-sm" type="button">上一页</button>
+                        <span id="search-page-info" class="text-muted small">1 / 1</span>
+                        <button id="search-next" class="btn btn-outline-light btn-sm" type="button">下一页</button>
+                    </div>
                 </div>
             </div>
 
@@ -505,11 +660,39 @@
 
 <div class="notification" id="notification"></div>
 
+<div class="modal fade" id="searchLoginModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content card">
+            <div class="modal-header border-0">
+                <h5 class="modal-title">平台登录</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-2 text-muted">选择登录范围</div>
+                <div class="btn-group btn-group-sm mb-3" role="group">
+                    <input type="radio" class="btn-check" name="search-login-scope" id="login-scope-global" autocomplete="off" checked>
+                    <label class="btn btn-outline-light" for="login-scope-global">全局</label>
+                    <input type="radio" class="btn-check" name="search-login-scope" id="login-scope-bot" autocomplete="off">
+                    <label class="btn btn-outline-light" for="login-scope-bot">当前机器人</label>
+                </div>
+                <div id="search-login-status" class="text-muted small mb-2">正在生成二维码...</div>
+                <div class="d-flex justify-content-center">
+                    <img id="search-login-qr" alt="QR" style="max-width: 240px; border-radius: 10px; display: none;" />
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js"></script>
 <script>
     const STORAGE_KEY = 'ts3ab.selectedBotId';
     const PLAYLIST_KEY_PREFIX = 'ts3ab.playlist.';
+    const SEARCH_SELECTED_KEY = 'ts3ab.search.selected';
+    const SEARCH_PAGE_SIZE_DEFAULT = 30;
+    const SEARCH_SOURCE_ORDER = ['yt', 'ytmusic', 'netease', 'qq'];
 
     const params = new URLSearchParams(window.location.search);
     const $botSelect = $('#botSelect');
@@ -517,9 +700,34 @@
     const $notification = $('#notification');
     const $volumeRange = $('#volume-range');
     const $volumeValue = $('#volume-value');
+    const $searchTabs = $('#search-tabs');
+    const $searchResults = $('#search-results');
+    const $searchPlaylists = $('#search-playlists');
+    const $searchTracks = $('#search-tracks');
+    const $searchLoginPanel = $('#search-login-panel');
+    const $searchLoginBtn = $('#search-login-btn');
+    const $searchLoginStatus = $('#search-login-status');
+    const $searchLoginQr = $('#search-login-qr');
+    const $searchModal = $('#searchLoginModal');
+    const $searchPageInfo = $('#search-page-info');
+    const $searchBreadcrumb = $('#search-breadcrumb');
+    const $selectedCount = $('#selected-count');
+    const $searchDetailStatus = $('#search-detail-status');
 
     let volumeTimer = null;
     let volumeDragging = false;
+
+    let searchStatusMap = {};
+    let currentSource = 'yt';
+    let searchPage = 1;
+    let searchPageSize = SEARCH_PAGE_SIZE_DEFAULT;
+    let searchView = 'results';
+    let currentPlaylistId = '';
+    let currentPlaylistName = '';
+    let loginPollTimer = null;
+    let detailPollTimer = null;
+    let detailPollToken = 0;
+    let selectedItems = loadSelectedItems();
 
     let playbackState = {
         status: '',
@@ -642,14 +850,19 @@
     }
 
     function applyMode(mode, notify) {
+        if (mode === 'list_loop') {
+            mode = 'list';
+        }
         const labels = {
             order: '顺序播放',
             random: '随机播放',
-            loop: '单曲循环'
+            loop: '单曲循环',
+            list: '列表循环'
         };
         $('#mode-order').toggleClass('mode-active', mode === 'order');
         $('#mode-random').toggleClass('mode-active', mode === 'random');
         $('#mode-loop').toggleClass('mode-active', mode === 'loop');
+        $('#mode-list').toggleClass('mode-active', mode === 'list');
         const $currentMode = $('#current-mode');
         if ($currentMode.length) {
             $currentMode.text(` — ${labels[mode] || labels.order}`);
@@ -723,12 +936,553 @@
     }
 
     function updateNowPlayingMeta(state) {
-        if (state.title) {
-            $('#current-song-title').text(state.title);
+        if (state.title !== undefined) {
+            const title = state.title && state.title.length ? state.title : '未选择歌曲';
+            $('#current-song-title').text(title);
         }
-        if (state.sourceType) {
-            $('#current-song-artist').text(state.sourceType);
+        if (state.sourceType !== undefined) {
+            const source = state.sourceType && state.sourceType.length ? state.sourceType : '等待播放...';
+            $('#current-song-artist').text(source);
         }
+    }
+
+    function updateQueueHighlight(state) {
+        if (!state || !state.itemId) {
+            return;
+        }
+        const selectedPlaylist = getPlaylistId();
+        if (state.playlistId && selectedPlaylist && state.playlistId !== selectedPlaylist) {
+            return;
+        }
+        markPlaying(state.itemId);
+    }
+
+    function loadSelectedItems() {
+        const raw = sessionStorage.getItem(SEARCH_SELECTED_KEY);
+        if (!raw) {
+            return {};
+        }
+        try {
+            const parsed = JSON.parse(raw);
+            return parsed && typeof parsed === 'object' ? parsed : {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    function persistSelectedItems() {
+        sessionStorage.setItem(SEARCH_SELECTED_KEY, JSON.stringify(selectedItems));
+    }
+
+    function updateSelectedCount() {
+        const count = Object.keys(selectedItems).length;
+        $selectedCount.text(count);
+    }
+
+    function formatDuration(ms) {
+        const safe = Math.max(0, Math.floor((ms || 0) / 1000));
+        const minutes = Math.floor(safe / 60);
+        const seconds = safe % 60;
+        return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    }
+
+    function formatPlayCount(value) {
+        if (value === null || value === undefined || Number.isNaN(Number(value))) {
+            return '';
+        }
+        const num = Number(value);
+        if (num < 10000) {
+            return `${num}`;
+        }
+        if (num < 100000000) {
+            return `${(num / 10000).toFixed(1).replace(/\\.0$/, '')}万`;
+        }
+        return `${(num / 100000000).toFixed(1).replace(/\\.0$/, '')}亿`;
+    }
+
+    function renderSearchTabs(statuses) {
+        $searchTabs.empty();
+        const map = {};
+        statuses.forEach((item) => {
+            map[item.source] = item;
+        });
+        searchStatusMap = map;
+        const ordered = SEARCH_SOURCE_ORDER.filter((src) => map[src]);
+        ordered.forEach((source) => {
+            const item = map[source];
+            const activeClass = source === currentSource ? 'active' : '';
+            const label = source === 'yt' ? 'YouTube' :
+                source === 'ytmusic' ? 'YouTube Music' :
+                    source === 'netease' ? '网易云' : 'QQ音乐';
+            const disabled = item.requiresLogin && !item.loggedIn;
+            const disabledClass = disabled ? 'locked' : '';
+            const li = $(
+                `<li class="nav-item">
+                    <button class="nav-link ${activeClass} ${disabledClass}" data-source="${source}" type="button">
+                        ${label}
+                    </button>
+                </li>`
+            );
+            $searchTabs.append(li);
+        });
+    }
+
+    function updateSearchLoginPanel() {
+        const status = searchStatusMap[currentSource];
+        if (!status) {
+            $searchLoginPanel.addClass('d-none');
+            return;
+        }
+        const requiresLogin = status.requiresLogin;
+        const loggedIn = status.loggedIn;
+        if (requiresLogin && !loggedIn) {
+            $searchLoginPanel.removeClass('d-none');
+            renderPlaceholder($searchResults, '请先登录后使用搜索功能');
+            renderPlaceholder($searchPlaylists, '请先登录后查看歌单');
+            renderPlaceholder($searchTracks, '请先登录后查看歌单');
+        } else {
+            $searchLoginPanel.addClass('d-none');
+        }
+    }
+
+    function setSearchView(view) {
+        searchView = view;
+        $('#search-view-results').toggleClass('btn-success', view === 'results').toggleClass('btn-outline-light', view !== 'results');
+        $('#search-view-playlists').toggleClass('btn-success', view !== 'results').toggleClass('btn-outline-light', view === 'results');
+        $searchResults.toggleClass('d-none', view !== 'results');
+        $searchPlaylists.toggleClass('d-none', view !== 'playlists');
+        $searchTracks.toggleClass('d-none', view !== 'tracks');
+        $searchBreadcrumb.toggleClass('d-none', view === 'results');
+        if (view !== 'results') {
+            stopDetailPolling();
+        }
+    }
+
+    function setActiveSource(source) {
+        if (!source) return;
+        stopDetailPolling();
+        currentSource = source;
+        $searchTabs.find('.nav-link').removeClass('active');
+        $searchTabs.find(`.nav-link[data-source="${source}"]`).addClass('active');
+        updateSearchLoginPanel();
+        const status = searchStatusMap[currentSource];
+        if (status && !status.supportsPlaylists) {
+            $('#search-view-playlists').prop('disabled', true).addClass('disabled');
+        } else {
+            $('#search-view-playlists').prop('disabled', false).removeClass('disabled');
+        }
+        if ((searchView === 'playlists' || searchView === 'tracks') && status && status.supportsPlaylists) {
+            loadPlaylists(1);
+        } else if (searchView !== 'results' && status && !status.supportsPlaylists) {
+            renderPlaceholder($searchPlaylists, '当前平台不支持歌单');
+            setSearchView('playlists');
+        } else if ($('#search-query').val().trim().length > 0) {
+            loadSearch(1);
+        } else {
+            renderPlaceholder($searchResults, '请输入关键词开始搜索');
+        }
+    }
+
+    function renderPlaceholder($target, text) {
+        $target.html(`<div class="search-placeholder">${text}</div>`);
+    }
+
+    function buildSearchRow(item, checked) {
+        const playCount = formatPlayCount(item.playCount);
+        const playCountText = playCount ? ` · ${playCount}次播放` : '';
+        const durationText = item.durationMs ? ` · ${formatDuration(item.durationMs)}` : '';
+        const sub = `${item.artist || ''}${durationText}${playCountText}`;
+        const coverTag = item.coverUrl
+            ? `<img class="search-cover" src="${item.coverUrl}" alt="cover" />`
+            : `<div class="search-cover"></div>`;
+        return `
+            <div class="search-result">
+                <input class="form-check-input search-select" type="checkbox" data-uid="${item.uid}" data-query="${item.pageUrl}" ${checked ? 'checked' : ''} />
+                ${coverTag}
+                <div class="search-meta">
+                    <div class="search-title">${item.title || '未知歌曲'}</div>
+                    <div class="search-sub">${sub}</div>
+                </div>
+                <div class="search-actions">
+                    <button class="btn btn-outline-light btn-sm add-single" type="button" data-query="${item.pageUrl}">添加</button>
+                </div>
+            </div>
+        `;
+    }
+
+    function renderSearchResults(items) {
+        if (!items || items.length === 0) {
+            renderPlaceholder($searchResults, '暂无结果');
+            return;
+        }
+        const html = items.map((item) => {
+            const checked = Boolean(selectedItems[item.uid]);
+            return buildSearchRow(item, checked);
+        }).join('');
+        $searchResults.html(html);
+    }
+
+    function renderPlaylists(items) {
+        if (!items || items.length === 0) {
+            renderPlaceholder($searchPlaylists, '暂无歌单');
+            return;
+        }
+        const html = items.map((item) => {
+            const coverTag = item.coverUrl
+                ? `<img class="search-cover" src="${item.coverUrl}" alt="cover" />`
+                : `<div class="search-cover"></div>`;
+            const countText = item.trackCount ? `${item.trackCount} 首` : '';
+            const playText = formatPlayCount(item.playCount);
+            const sub = `${countText}${playText ? ` · ${playText}次播放` : ''}`;
+            return `
+                <div class="search-result">
+                    ${coverTag}
+                    <div class="search-meta">
+                        <div class="search-title">${item.name || '未命名歌单'}</div>
+                        <div class="search-sub">${sub}</div>
+                    </div>
+                    <div class="search-actions">
+                        <button class="btn btn-outline-light btn-sm view-playlist" data-id="${item.id}" data-name="${item.name || ''}" type="button">查看</button>
+                        <button class="btn btn-success btn-sm import-playlist" data-id="${item.id}" data-name="${item.name || ''}" type="button">整张导入</button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        $searchPlaylists.html(html);
+    }
+
+    function renderPlaylistTracks(items) {
+        if (!items || items.length === 0) {
+            renderPlaceholder($searchTracks, '歌单为空');
+            return;
+        }
+        const html = items.map((item) => {
+            const checked = Boolean(selectedItems[item.uid]);
+            return buildSearchRow(item, checked);
+        }).join('');
+        $searchTracks.html(html);
+    }
+
+    function updatePagination(page, pageSize, total) {
+        const totalPages = total && total > 0 ? Math.max(1, Math.ceil(total / pageSize)) : null;
+        if (totalPages) {
+            $searchPageInfo.text(`${page} / ${totalPages}`);
+        } else {
+            $searchPageInfo.text(`${page}`);
+        }
+        $('#search-prev').prop('disabled', page <= 1);
+        $('#search-next').prop('disabled', totalPages ? page >= totalPages : false);
+    }
+
+    function stopDetailPolling(clearStatus = true) {
+        if (detailPollTimer) {
+            clearTimeout(detailPollTimer);
+            detailPollTimer = null;
+        }
+        if (clearStatus) {
+            $searchDetailStatus.addClass('d-none').text('正在加载详情...');
+        }
+    }
+
+    function startDetailPolling(query, page, pageSize) {
+        if (!query || currentSource !== 'ytmusic') {
+            return;
+        }
+        stopDetailPolling();
+        $searchDetailStatus.removeClass('d-none').text('正在加载详情...');
+        const token = ++detailPollToken;
+        const expectedQuery = query;
+        const expectedPage = page;
+        const expectedPageSize = pageSize;
+        const botId = getBotId();
+        const shouldAbort = () => (
+            token !== detailPollToken ||
+            searchView !== 'results' ||
+            currentSource !== 'ytmusic' ||
+            $('#search-query').val().trim() !== expectedQuery ||
+            searchPage !== expectedPage ||
+            searchPageSize !== expectedPageSize
+        );
+        const schedule = () => {
+            detailPollTimer = setTimeout(poll, 1500);
+        };
+        const poll = () => {
+            if (shouldAbort()) {
+                stopDetailPolling();
+                return;
+            }
+            $.getJSON('/internal/search/detail', {
+                botId,
+                source: currentSource,
+                q: expectedQuery,
+                page: expectedPage,
+                pageSize: expectedPageSize
+            }).done((data) => {
+                if (shouldAbort()) {
+                    stopDetailPolling();
+                    return;
+                }
+                const status = String(data.status || '').toLowerCase();
+                if (status === 'ready') {
+                    renderSearchResults(data.items || []);
+                    updatePagination(data.page || expectedPage, data.pageSize || expectedPageSize, data.total || 0);
+                    $searchDetailStatus.removeClass('d-none').text('详情已更新');
+                    stopDetailPolling(false);
+                    setTimeout(() => {
+                        if (token === detailPollToken) {
+                            $searchDetailStatus.addClass('d-none').text('正在加载详情...');
+                        }
+                    }, 1500);
+                    return;
+                }
+                if (status === 'empty' || status === 'unsupported' || status === 'error') {
+                    stopDetailPolling();
+                    return;
+                }
+                schedule();
+            }).fail(() => {
+                if (shouldAbort()) {
+                    stopDetailPolling();
+                    return;
+                }
+                schedule();
+            });
+        };
+        schedule();
+    }
+
+    function loadSearch(page) {
+        const botId = getBotId();
+        const query = $('#search-query').val().trim();
+        if (!query) {
+            renderPlaceholder($searchResults, '请输入关键词开始搜索');
+            return;
+        }
+        stopDetailPolling();
+        searchPage = page;
+        setSearchView('results');
+        $.getJSON('/internal/search', {
+            botId,
+            source: currentSource,
+            q: query,
+            page: searchPage,
+            pageSize: searchPageSize
+        }).done((data) => {
+            renderSearchResults(data.items || []);
+            updatePagination(data.page || searchPage, data.pageSize || searchPageSize, data.total || 0);
+            startDetailPolling(query, searchPage, searchPageSize);
+        }).fail((resp) => {
+            const text = resp && resp.responseText ? resp.responseText : '搜索失败';
+            renderPlaceholder($searchResults, text);
+            stopDetailPolling();
+        });
+    }
+
+    function loadPlaylists(page) {
+        const botId = getBotId();
+        stopDetailPolling();
+        searchPage = page;
+        currentPlaylistId = '';
+        setSearchView('playlists');
+        $.getJSON(`/internal/search/${currentSource}/playlists`, {
+            botId,
+            page: searchPage,
+            pageSize: searchPageSize
+        }).done((data) => {
+            renderPlaylists(data.items || []);
+            updatePagination(data.page || searchPage, data.pageSize || searchPageSize, data.total || 0);
+        }).fail((resp) => {
+            const text = resp && resp.responseText ? resp.responseText : '获取歌单失败';
+            renderPlaceholder($searchPlaylists, text);
+        });
+    }
+
+    function loadPlaylistTracks(playlistId, page, playlistName) {
+        const botId = getBotId();
+        stopDetailPolling();
+        searchPage = page;
+        currentPlaylistId = playlistId;
+        currentPlaylistName = playlistName || playlistId;
+        setSearchView('tracks');
+        $searchBreadcrumb.text(`歌单：${currentPlaylistName}（第 ${searchPage} 页）`).removeClass('d-none');
+        $.getJSON(`/internal/search/${currentSource}/playlists/${encodeURIComponent(playlistId)}/tracks`, {
+            botId,
+            page: searchPage,
+            pageSize: searchPageSize
+        }).done((data) => {
+            renderPlaylistTracks(data.items || []);
+            updatePagination(data.page || searchPage, data.pageSize || searchPageSize, data.total || 0);
+        }).fail((resp) => {
+            const text = resp && resp.responseText ? resp.responseText : '获取歌单歌曲失败';
+            renderPlaceholder($searchTracks, text);
+        });
+    }
+
+    function importEntirePlaylist(playlistId, playlistName) {
+        const botId = getBotId();
+        if (!botId) {
+            showNotification('请先选择机器人', 'warning');
+            return;
+        }
+        const queries = [];
+        const pageSize = Math.min(50, searchPageSize);
+        let page = 1;
+        const title = playlistName ? `正在导入歌单：${playlistName}` : '正在导入歌单，请稍候...';
+        showNotification(title, 'success');
+        const fetchPage = () => {
+            return $.getJSON(`/internal/search/${currentSource}/playlists/${encodeURIComponent(playlistId)}/tracks`, {
+                botId,
+                page,
+                pageSize
+            }).then((data) => {
+                const items = data.items || [];
+                items.forEach((item) => {
+                    if (item.pageUrl) {
+                        queries.push(item.pageUrl);
+                    }
+                });
+                const total = data.total || 0;
+                page += 1;
+                if (items.length === 0) {
+                    return queries;
+                }
+                if (total > 0 && queries.length >= total) {
+                    return queries;
+                }
+                return fetchPage();
+            });
+        };
+        fetchPage().then(() => {
+            addQueries(queries);
+        }).catch(() => {
+            showNotification('导入歌单失败', 'error');
+        });
+    }
+
+    function addQueries(queries) {
+        const botId = getBotId();
+        const playlistId = getPlaylistId();
+        if (!botId || !queries || queries.length === 0) return;
+        $.ajax({
+            url: `/internal/queue/${botId}/${encodeURIComponent(playlistId)}/add`,
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ queries, addedBy: 'web' })
+        }).done(() => {
+            showNotification('已添加到播放列表', 'success');
+            selectedItems = {};
+            persistSelectedItems();
+            updateSelectedCount();
+        }).fail((resp) => {
+            const text = resp && resp.responseText ? resp.responseText : '添加失败';
+            showNotification(text, 'error');
+        });
+    }
+
+    function selectAllCurrentPage() {
+        const $list = searchView === 'tracks' ? $searchTracks : $searchResults;
+        $list.find('.search-select').each(function () {
+            const uid = $(this).data('uid');
+            const query = $(this).data('query');
+            if (!uid || !query) return;
+            selectedItems[uid] = { uid, query };
+            $(this).prop('checked', true);
+        });
+        persistSelectedItems();
+        updateSelectedCount();
+    }
+
+    function clearSelection() {
+        selectedItems = {};
+        persistSelectedItems();
+        updateSelectedCount();
+        $('.search-select').prop('checked', false);
+    }
+
+    function startSearchLogin() {
+        const botId = getBotId();
+        const scope = $('#login-scope-bot').is(':checked') ? 'bot' : 'global';
+        if (scope === 'bot' && !botId) {
+            showNotification('请先选择机器人', 'warning');
+            return;
+        }
+        $searchLoginStatus.text('正在生成二维码...');
+        $searchLoginQr.hide().attr('src', '');
+        $.post(`/internal/search/${currentSource}/login`, { scope, botId })
+            .done((data) => {
+                if (data.qrImage) {
+                    $searchLoginQr.attr('src', `data:image/png;base64,${data.qrImage}`).show();
+                } else if (data.qrUrl && window.QRious) {
+                    const qr = new QRious({ value: data.qrUrl, size: 220, level: 'H' });
+                    $searchLoginQr.attr('src', qr.toDataURL()).show();
+                }
+                $searchLoginStatus.text(data.message || '请扫码登录');
+                const sessionId = data.sessionId;
+                if (loginPollTimer) {
+                    clearInterval(loginPollTimer);
+                }
+                loginPollTimer = setInterval(() => pollSearchLogin(sessionId), 2000);
+            })
+            .fail((resp) => {
+                const text = resp && resp.responseText ? resp.responseText : '登录失败';
+                $searchLoginStatus.text(text);
+            });
+        const modal = bootstrap.Modal.getOrCreateInstance($searchModal[0]);
+        modal.show();
+    }
+
+    function pollSearchLogin(sessionId) {
+        if (!sessionId) return;
+        $.getJSON(`/internal/search/${currentSource}/login/${sessionId}`)
+            .done((data) => {
+                if (data.status === 'CONFIRMED') {
+                    $searchLoginStatus.text('登录成功');
+                    if (loginPollTimer) {
+                        clearInterval(loginPollTimer);
+                        loginPollTimer = null;
+                    }
+                    const modal = bootstrap.Modal.getOrCreateInstance($searchModal[0]);
+                    modal.hide();
+                    fetchSearchStatus(true);
+                } else if (data.status === 'SCANNED') {
+                    $searchLoginStatus.text('已扫码，等待确认');
+                } else if (data.status === 'EXPIRED') {
+                    $searchLoginStatus.text('二维码已过期，请重新登录');
+                    if (loginPollTimer) {
+                        clearInterval(loginPollTimer);
+                        loginPollTimer = null;
+                    }
+                } else if (data.status === 'ERROR') {
+                    $searchLoginStatus.text(data.message || '登录失败');
+                    if (loginPollTimer) {
+                        clearInterval(loginPollTimer);
+                        loginPollTimer = null;
+                    }
+                } else {
+                    $searchLoginStatus.text(data.message || '等待扫码');
+                }
+            })
+            .fail(() => {
+                $searchLoginStatus.text('登录状态获取失败');
+            });
+    }
+
+    function fetchSearchStatus(keepSource) {
+        const botId = getBotId();
+        $.getJSON('/internal/search/status', { botId })
+            .done((data) => {
+                renderSearchTabs(data || []);
+                if (data && data.length) {
+                    const sources = data.map((item) => item.source);
+                    if (!keepSource || !sources.includes(currentSource)) {
+                        currentSource = sources[0];
+                    }
+                }
+                setActiveSource(currentSource);
+            })
+            .fail(() => {
+                renderPlaceholder($searchResults, '搜索服务不可用');
+            });
     }
 
     function togglePlayPause() {
@@ -783,6 +1537,7 @@
                 updatePlayPauseButton(playbackState.playing);
                 updateStatusText(playbackState);
                 updateNowPlayingMeta(data);
+                updateQueueHighlight(data);
                 updateProgressFromState();
                 if (!volumeDragging) {
                     updateVolumeDisplay(playbackState.volumePercent);
@@ -806,9 +1561,10 @@
     }
 
     function markPlaying(itemId) {
+        const targetId = String(itemId);
         $('.queue-item').removeClass('playing active');
         $('.queue-item').filter(function () {
-            return $(this).data('item-id') === itemId;
+            return String($(this).data('item-id')) === targetId;
         }).addClass('active playing');
     }
 
@@ -920,6 +1676,138 @@
         $('#mode-order').on('click', () => setMode('order'));
         $('#mode-random').on('click', () => setMode('random'));
         $('#mode-loop').on('click', () => setMode('loop'));
+        $('#mode-list').on('click', () => setMode('list'));
+
+        updateSelectedCount();
+        setSearchView(searchView);
+        fetchSearchStatus(false);
+
+        $searchTabs.on('click', '.nav-link', function () {
+            const source = $(this).data('source');
+            setActiveSource(source);
+        });
+
+        $('#search-btn').on('click', () => loadSearch(1));
+        $('#search-clear').on('click', () => {
+            $('#search-query').val('');
+            renderPlaceholder($searchResults, '请输入关键词开始搜索');
+            stopDetailPolling();
+        });
+        $('#search-query').on('keypress', (event) => {
+            if (event.key === 'Enter') {
+                loadSearch(1);
+            }
+        });
+        $('#search-page-size').on('change', function () {
+            searchPageSize = Number($(this).val()) || SEARCH_PAGE_SIZE_DEFAULT;
+            if (searchView === 'playlists') {
+                loadPlaylists(1);
+            } else if (searchView === 'tracks' && currentPlaylistId) {
+                loadPlaylistTracks(currentPlaylistId, 1, currentPlaylistName);
+            } else {
+                loadSearch(1);
+            }
+        });
+
+        $('#search-view-results').on('click', () => {
+            setSearchView('results');
+            loadSearch(1);
+        });
+        $('#search-view-playlists').on('click', () => {
+            setSearchView('playlists');
+            loadPlaylists(1);
+        });
+
+        $('#search-prev').on('click', () => {
+            if (searchPage <= 1) return;
+            const nextPage = searchPage - 1;
+            if (searchView === 'playlists') {
+                loadPlaylists(nextPage);
+            } else if (searchView === 'tracks' && currentPlaylistId) {
+                loadPlaylistTracks(currentPlaylistId, nextPage, currentPlaylistName);
+            } else {
+                loadSearch(nextPage);
+            }
+        });
+        $('#search-next').on('click', () => {
+            const nextPage = searchPage + 1;
+            if (searchView === 'playlists') {
+                loadPlaylists(nextPage);
+            } else if (searchView === 'tracks' && currentPlaylistId) {
+                loadPlaylistTracks(currentPlaylistId, nextPage, currentPlaylistName);
+            } else {
+                loadSearch(nextPage);
+            }
+        });
+
+        $searchLoginBtn.on('click', startSearchLogin);
+        $searchModal.on('hidden.bs.modal', () => {
+            if (loginPollTimer) {
+                clearInterval(loginPollTimer);
+                loginPollTimer = null;
+            }
+        });
+
+        $searchResults.on('change', '.search-select', function () {
+            const uid = $(this).data('uid');
+            const query = $(this).data('query');
+            if (!uid || !query) return;
+            if ($(this).is(':checked')) {
+                selectedItems[uid] = { uid, query };
+            } else {
+                delete selectedItems[uid];
+            }
+            persistSelectedItems();
+            updateSelectedCount();
+        });
+
+        $searchTracks.on('change', '.search-select', function () {
+            const uid = $(this).data('uid');
+            const query = $(this).data('query');
+            if (!uid || !query) return;
+            if ($(this).is(':checked')) {
+                selectedItems[uid] = { uid, query };
+            } else {
+                delete selectedItems[uid];
+            }
+            persistSelectedItems();
+            updateSelectedCount();
+        });
+
+        $searchResults.on('click', '.add-single', function () {
+            const query = $(this).data('query');
+            if (query) {
+                addQueries([query]);
+            }
+        });
+
+        $searchTracks.on('click', '.add-single', function () {
+            const query = $(this).data('query');
+            if (query) {
+                addQueries([query]);
+            }
+        });
+
+        $searchPlaylists.on('click', '.view-playlist', function () {
+            const playlistId = $(this).data('id');
+            const playlistName = $(this).data('name');
+            if (!playlistId) return;
+            loadPlaylistTracks(playlistId, 1, playlistName);
+        });
+
+        $searchPlaylists.on('click', '.import-playlist', function () {
+            const playlistId = $(this).data('id');
+            const playlistName = $(this).data('name');
+            if (!playlistId) return;
+            importEntirePlaylist(playlistId, playlistName);
+        });
+
+        $('#select-all-page').on('click', selectAllCurrentPage);
+        $('#clear-selection').on('click', clearSelection);
+        $('#add-selected').on('click', () => {
+            const queries = Object.values(selectedItems).map((item) => item.query).filter(Boolean);
+            addQueries(queries);
+        });
 
         const initialMode = $('body').data('mode') || 'order';
         applyMode(initialMode, false);

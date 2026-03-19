@@ -20,3 +20,7 @@ yt = "yt-dlp"
 ytmusic = "yt-dlp"
 netease = "netease-cloud-music"
 qq = "qqmusic"
+
+[search]
+auth_secret = ""
+cache_seconds = 120

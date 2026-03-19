@@ -19,7 +19,11 @@ ffmpeg_path = "ffmpeg"
 auto_download = true
 
 [resolvers.external]
-yt = "yt-dlp"
-ytmusic = "yt-dlp"
+yt = "F:/project/IdeaProject/SteamRegHelper/TS3AudioBot/yt-dlp/yt-dlp.exe"
+ytmusic = "F:/project/IdeaProject/SteamRegHelper/TS3AudioBot/yt-dlp/yt-dlp.exe"
 netease = "netease-cloud-music"
 qq = "qqmusic"
+
+[search]
+auth_secret = "CHANGE_ME"
+cache_seconds = 120

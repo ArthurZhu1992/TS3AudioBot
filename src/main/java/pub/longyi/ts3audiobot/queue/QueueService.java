@@ -269,6 +269,31 @@ public final class QueueService {
 
 
     /**
+     * 执行 nextListLoop 操作。
+     * @param botId 参数 botId
+     * @param playlistId 参数 playlistId
+     * @return 返回值
+     */
+    public QueueItem nextListLoop(String botId, String playlistId) {
+        synchronized (stateLock) {
+            List<QueueItem> queue = resolveQueue(botId, playlistId);
+            if (queue.isEmpty()) {
+                return null;
+            }
+            int size = queue.size();
+            int index = resolvePosition(botId, playlistId);
+            if (index >= size) {
+                index = 0;
+            }
+            QueueItem item = queue.get(index);
+            setPosition(botId, playlistId, index + 1);
+            persistSnapshot();
+            return item;
+        }
+    }
+
+
+    /**
      * 执行 clear 操作。
      * @param botId 参数 botId
      * @param playlistId 参数 playlistId

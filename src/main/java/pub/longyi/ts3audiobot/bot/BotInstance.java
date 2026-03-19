@@ -57,6 +57,8 @@ public final class BotInstance {
     private volatile boolean playbackPaused;
     private volatile PlaybackMode playbackMode = PlaybackMode.ORDER;
     private volatile Track currentTrack;
+    private volatile String currentItemId;
+    private volatile String currentPlaylistId;
     private volatile long playbackStartedAt;
     private volatile long playbackPositionMs;
 
@@ -174,6 +176,14 @@ public final class BotInstance {
         return currentTrack;
     }
 
+    public String currentItemId() {
+        return currentItemId;
+    }
+
+    public String currentPlaylistId() {
+        return currentPlaylistId;
+    }
+
 
     /**
      * 执行 volumePercent 操作。
@@ -254,6 +264,8 @@ public final class BotInstance {
         playbackPaused = true;
         playbackPositionMs = 0L;
         currentTrack = null;
+        currentItemId = null;
+        currentPlaylistId = null;
         audioEngine.stop();
         cancelTask(playbackTask);
         cancelTask(connectionTask);
@@ -328,12 +340,15 @@ public final class BotInstance {
         QueueItem resolved = switch (mode) {
             case RANDOM -> queueService.nextRandom(id, playlistId, random);
             case LOOP -> queueService.nextLoop(id, playlistId);
+            case LIST_LOOP -> queueService.nextListLoop(id, playlistId);
             default -> queueService.next(id, playlistId);
         };
         if (resolved == null) {
             return;
         }
         playbackPaused = false;
+        currentItemId = resolved.id();
+        currentPlaylistId = playlistId;
         currentTrack = resolved.track();
         playbackPositionMs = 0L;
         playbackStartedAt = System.currentTimeMillis();
