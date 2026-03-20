@@ -3,6 +3,7 @@ package pub.longyi.ts3audiobot.bot;
 import lombok.extern.slf4j.Slf4j;
 import pub.longyi.ts3audiobot.audio.AudioEngine;
 import pub.longyi.ts3audiobot.config.AppConfig;
+import pub.longyi.ts3audiobot.media.TrackMediaService;
 import pub.longyi.ts3audiobot.queue.QueueService;
 import pub.longyi.ts3audiobot.queue.QueueItem;
 import pub.longyi.ts3audiobot.queue.Track;
@@ -41,6 +42,7 @@ public final class BotInstance {
     private final AppConfig.BotConfig config;
     private final Ts3VoiceClient client;
     private final AudioEngine audioEngine;
+    private final TrackMediaService trackMediaService;
     private final QueueService queueService;
     private final ScheduledExecutorService scheduler;
     private final java.util.Random random = new java.util.Random();
@@ -85,6 +87,7 @@ public final class BotInstance {
         AppConfig.BotConfig config,
         Ts3VoiceClient client,
         AudioEngine audioEngine,
+        TrackMediaService trackMediaService,
         QueueService queueService,
         ScheduledExecutorService scheduler
     ) {
@@ -92,6 +95,7 @@ public final class BotInstance {
         this.config = config;
         this.client = client;
         this.audioEngine = audioEngine;
+        this.trackMediaService = trackMediaService;
         this.queueService = queueService;
         this.scheduler = scheduler;
         if (config != null) {
@@ -296,6 +300,7 @@ public final class BotInstance {
         boolean wasPaused = playbackPaused;
         playbackPaused = false;
         if (wasPaused && currentTrack != null) {
+            currentTrack = prepareTrackForPlayback(currentPlaylistId, currentItemId, currentTrack);
             long resumeAt = Math.max(0L, playbackPositionMs);
             playbackStartedAt = System.currentTimeMillis() - resumeAt;
             audioEngine.play(currentTrack);
@@ -349,10 +354,10 @@ public final class BotInstance {
         playbackPaused = false;
         currentItemId = resolved.id();
         currentPlaylistId = playlistId;
-        currentTrack = resolved.track();
+        currentTrack = prepareTrackForPlayback(playlistId, resolved.id(), resolved.track());
         playbackPositionMs = 0L;
         playbackStartedAt = System.currentTimeMillis();
-        audioEngine.play(resolved.track());
+        audioEngine.play(currentTrack);
     }
 
 
@@ -490,6 +495,17 @@ public final class BotInstance {
         if (task != null) {
             task.cancel(true);
         }
+    }
+
+    private Track prepareTrackForPlayback(String playlistId, String itemId, Track track) {
+        if (track == null) {
+            return null;
+        }
+        Track prepared = trackMediaService.prepareForPlayback(track);
+        if (!prepared.equals(track) && itemId != null && !itemId.isBlank()) {
+            queueService.updateTrack(id, playlistId, itemId, prepared);
+        }
+        return prepared;
     }
 
     private long resolvePlaybackPosition() {

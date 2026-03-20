@@ -4,6 +4,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import pub.longyi.ts3audiobot.media.TrackMediaService;
 import pub.longyi.ts3audiobot.queue.QueueItem;
 import pub.longyi.ts3audiobot.queue.QueueService;
 import pub.longyi.ts3audiobot.queue.Track;
@@ -38,15 +39,21 @@ public final class InternalQueueController {
     private static final Logger log = LoggerFactory.getLogger(InternalQueueController.class);
     private final QueueService queueService;
     private final ResolverRegistry resolverRegistry;
+    private final TrackMediaService trackMediaService;
 
     /**
      * 创建 InternalQueueController 实例。
      * @param queueService 参数 queueService
      * @param resolverRegistry 参数 resolverRegistry
      */
-    public InternalQueueController(QueueService queueService, ResolverRegistry resolverRegistry) {
+    public InternalQueueController(
+        QueueService queueService,
+        ResolverRegistry resolverRegistry,
+        TrackMediaService trackMediaService
+    ) {
         this.queueService = queueService;
         this.resolverRegistry = resolverRegistry;
+        this.trackMediaService = trackMediaService;
     }
 
 
@@ -57,7 +64,8 @@ public final class InternalQueueController {
      */
     @GetMapping("/{botId}")
     public List<QueueItem> list(@PathVariable String botId) {
-        return queueService.list(botId);
+        String playlistId = queueService.getActivePlaylist(botId);
+        return queueService.rawList(botId, playlistId);
     }
 
 
@@ -69,7 +77,21 @@ public final class InternalQueueController {
      */
     @GetMapping("/{botId}/{playlistId}")
     public List<QueueItem> listByPlaylist(@PathVariable String botId, @PathVariable String playlistId) {
-        return queueService.list(botId, playlistId);
+        return queueService.rawList(botId, playlistId);
+    }
+
+    @PostMapping("/{botId}/{playlistId}/items/{itemId}/refresh")
+    public ResponseEntity<?> refreshItem(
+        @PathVariable String botId,
+        @PathVariable String playlistId,
+        @PathVariable String itemId
+    ) {
+        QueueItem refreshed = queueService.refreshItem(botId, playlistId, itemId);
+        if (refreshed == null) {
+            return ResponseEntity.notFound().build();
+        }
+        QueueItem prepared = prepareQueueItemForDisplay(botId, playlistId, refreshed);
+        return ResponseEntity.ok(prepared);
     }
 
 
@@ -81,20 +103,20 @@ public final class InternalQueueController {
      */
     @PostMapping("/{botId}/add")
     public ResponseEntity<?> add(@PathVariable String botId, @RequestBody AddRequest request) {
-        List<String> queries = normalizeQueries(request);
-        if (queries.isEmpty()) {
+        List<AddItemRequest> items = normalizeItems(request);
+        if (items.isEmpty()) {
             return ResponseEntity.badRequest().body("Query is required");
         }
-        if (queries.size() == 1) {
-            String query = queries.get(0);
-            Optional<Track> track = resolveTrack(query);
+        if (items.size() == 1) {
+            AddItemRequest item = items.get(0);
+            Optional<Track> track = resolveTrack(item.query());
             if (track.isEmpty()) {
                 return ResponseEntity.badRequest().body("No resolver could handle the query");
             }
-            Track resolved = applyWebsiteSourceType(query, track.get());
+            Track resolved = trackMediaService.prepareForQueue(applyTrackMetadata(item, applyWebsiteSourceType(item.query(), track.get())));
             return ResponseEntity.ok(queueService.add(botId, resolved, request.addedBy()));
         }
-        BatchAddResponse response = addBatch(botId, null, queries, request.addedBy());
+        BatchAddResponse response = addBatch(botId, null, items, request.addedBy());
         return ResponseEntity.ok(response);
     }
 
@@ -112,20 +134,20 @@ public final class InternalQueueController {
         @PathVariable String playlistId,
         @RequestBody AddRequest request
     ) {
-        List<String> queries = normalizeQueries(request);
-        if (queries.isEmpty()) {
+        List<AddItemRequest> items = normalizeItems(request);
+        if (items.isEmpty()) {
             return ResponseEntity.badRequest().body("Query is required");
         }
-        if (queries.size() == 1) {
-            String query = queries.get(0);
-            Optional<Track> track = resolveTrack(query);
+        if (items.size() == 1) {
+            AddItemRequest item = items.get(0);
+            Optional<Track> track = resolveTrack(item.query());
             if (track.isEmpty()) {
                 return ResponseEntity.badRequest().body("No resolver could handle the query");
             }
-            Track resolved = applyWebsiteSourceType(query, track.get());
+            Track resolved = trackMediaService.prepareForQueue(applyTrackMetadata(item, applyWebsiteSourceType(item.query(), track.get())));
             return ResponseEntity.ok(queueService.add(botId, playlistId, resolved, request.addedBy()));
         }
-        BatchAddResponse response = addBatch(botId, playlistId, queries, request.addedBy());
+        BatchAddResponse response = addBatch(botId, playlistId, items, request.addedBy());
         return ResponseEntity.ok(response);
     }
 
@@ -136,6 +158,7 @@ public final class InternalQueueController {
      */
     @PostMapping("/{botId}/clear")
     public void clear(@PathVariable String botId) {
+        deleteQueueMedia(queueService.rawList(botId));
         queueService.clear(botId);
     }
 
@@ -147,6 +170,7 @@ public final class InternalQueueController {
      */
     @PostMapping("/{botId}/{playlistId}/clear")
     public void clearByPlaylist(@PathVariable String botId, @PathVariable String playlistId) {
+        deleteQueueMedia(queueService.rawList(botId, playlistId));
         queueService.clear(botId, playlistId);
     }
 
@@ -164,10 +188,12 @@ public final class InternalQueueController {
         @PathVariable String playlistId,
         @PathVariable String itemId
     ) {
+        Track targetTrack = findTrack(botId, playlistId, itemId);
         boolean removed = queueService.removeItem(botId, playlistId, itemId);
         if (!removed) {
             return ResponseEntity.badRequest().body("Queue item delete failed");
         }
+        trackMediaService.deleteTrackMedia(targetTrack);
         return ResponseEntity.ok().build();
 
     }
@@ -243,6 +269,7 @@ public final class InternalQueueController {
      */
     @DeleteMapping("/{botId}/playlists/{playlistId}")
     public ResponseEntity<?> deletePlaylist(@PathVariable String botId, @PathVariable String playlistId) {
+        deleteQueueMedia(queueService.rawList(botId, playlistId));
         boolean removed = queueService.removePlaylist(botId, playlistId);
         if (!removed) {
             return ResponseEntity.badRequest().body("Playlist delete failed");
@@ -292,14 +319,43 @@ public final class InternalQueueController {
             website,
             track.sourceId(),
             track.streamUrl(),
-            track.durationMs()
+            track.durationMs(),
+            track.coverUrl(),
+            track.artist(),
+            track.playCount()
         );
     }
 
-    private BatchAddResponse addBatch(String botId, String playlistId, List<String> queries, String addedBy) {
+    private Track applyTrackMetadata(AddItemRequest item, Track track) {
+        if (item == null || track == null) {
+            return track;
+        }
+        String title = firstNonBlank(track.title(), item.title(), item.query());
+        String sourceType = firstNonBlank(track.sourceType(), item.source());
+        String sourceId = firstNonBlank(track.sourceId(), item.query());
+        String streamUrl = firstNonBlank(track.streamUrl(), item.query());
+        long durationMs = track.durationMs() > 0L ? track.durationMs() : safeDuration(item.durationMs());
+        String coverUrl = firstNonBlank(track.coverUrl(), item.coverUrl());
+        String artist = firstNonBlank(track.artist(), item.artist());
+        Long playCount = track.playCount() != null && track.playCount() > 0L ? track.playCount() : safePlayCount(item.playCount());
+        return new Track(
+            track.id(),
+            title,
+            sourceType,
+            sourceId,
+            streamUrl,
+            durationMs,
+            coverUrl,
+            artist,
+            playCount
+        );
+    }
+
+    private BatchAddResponse addBatch(String botId, String playlistId, List<AddItemRequest> items, String addedBy) {
         List<QueueItem> added = new java.util.ArrayList<>();
         List<AddFailure> failed = new java.util.ArrayList<>();
-        for (String query : queries) {
+        for (AddItemRequest item : items) {
+            String query = item == null ? null : item.query();
             if (query == null || query.isBlank()) {
                 continue;
             }
@@ -308,31 +364,81 @@ public final class InternalQueueController {
                 failed.add(new AddFailure(query, "No resolver could handle the query"));
                 continue;
             }
-            Track resolved = applyWebsiteSourceType(query, track.get());
-            QueueItem item = playlistId == null
+            Track resolved = trackMediaService.prepareForQueue(applyTrackMetadata(item, applyWebsiteSourceType(query, track.get())));
+            QueueItem queueItem = playlistId == null
                 ? queueService.add(botId, resolved, addedBy)
                 : queueService.add(botId, playlistId, resolved, addedBy);
-            added.add(item);
+            added.add(queueItem);
         }
         return new BatchAddResponse(added, failed);
     }
 
-    private List<String> normalizeQueries(AddRequest request) {
+    private List<AddItemRequest> normalizeItems(AddRequest request) {
         if (request == null) {
             return List.of();
         }
-        List<String> result = new java.util.ArrayList<>();
+        List<AddItemRequest> result = new java.util.ArrayList<>();
+        if (request.items() != null) {
+            for (AddItemRequest item : request.items()) {
+                if (item == null || item.query() == null || item.query().isBlank()) {
+                    continue;
+                }
+                result.add(new AddItemRequest(
+                    item.query().trim(),
+                    trimToNull(item.title()),
+                    trimToNull(item.artist()),
+                    trimToNull(item.coverUrl()),
+                    item.durationMs(),
+                    trimToNull(item.source()),
+                    item.playCount()
+                ));
+            }
+        }
         if (request.query() != null && !request.query().isBlank()) {
-            result.add(request.query().trim());
+            result.add(new AddItemRequest(request.query().trim(), null, null, null, null, null, null));
         }
         if (request.queries() != null) {
             for (String query : request.queries()) {
                 if (query != null && !query.isBlank()) {
-                    result.add(query.trim());
+                    result.add(new AddItemRequest(query.trim(), null, null, null, null, null, null));
                 }
             }
         }
         return result;
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) {
+            return "";
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return "";
+    }
+
+    private long safeDuration(Long durationMs) {
+        if (durationMs == null) {
+            return 0L;
+        }
+        return Math.max(0L, durationMs);
+    }
+
+    private Long safePlayCount(Long playCount) {
+        if (playCount == null || playCount <= 0L) {
+            return null;
+        }
+        return playCount;
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private String resolveWebsiteName(String query) {
@@ -393,6 +499,45 @@ public final class InternalQueueController {
         return host;
     }
 
+    private QueueItem prepareQueueItemForDisplay(String botId, String playlistId, QueueItem item) {
+        if (item == null || item.track() == null) {
+            return item;
+        }
+        Track displayTrack = trackMediaService.prepareForDisplay(item.track());
+        if (!displayTrack.equals(item.track())) {
+            queueService.updateTrack(botId, playlistId, item.id(), displayTrack);
+            return new QueueItem(
+                item.id(),
+                item.botId(),
+                item.playlistId(),
+                displayTrack,
+                item.addedAt(),
+                item.addedBy()
+            );
+        }
+        return item;
+    }
+
+    private Track findTrack(String botId, String playlistId, String itemId) {
+        for (QueueItem item : queueService.rawList(botId, playlistId)) {
+            if (item != null && item.id().equals(itemId)) {
+                return item.track();
+            }
+        }
+        return null;
+    }
+
+    private void deleteQueueMedia(List<QueueItem> items) {
+        if (items == null) {
+            return;
+        }
+        for (QueueItem item : items) {
+            if (item != null) {
+                trackMediaService.deleteTrackMedia(item.track());
+            }
+        }
+    }
+
 
     /**
      * 执行 AddRequest 操作。
@@ -400,7 +545,27 @@ public final class InternalQueueController {
      * @param addedBy 参数 addedBy
      * @return 返回值
      */
-    public record AddRequest(String query, List<String> queries, String addedBy) {
+    public record AddRequest(String query, List<String> queries, List<AddItemRequest> items, String addedBy) {
+    }
+
+
+    /**
+     * 鎵ц AddItemRequest 鎿嶄綔銆?     * @param query 鍙傛暟 query
+     * @param title 鍙傛暟 title
+     * @param artist 鍙傛暟 artist
+     * @param coverUrl 鍙傛暟 coverUrl
+     * @param durationMs 鍙傛暟 durationMs
+     * @param source 鍙傛暟 source
+     * @return 杩斿洖鍊?     */
+    public record AddItemRequest(
+        String query,
+        String title,
+        String artist,
+        String coverUrl,
+        Long durationMs,
+        String source,
+        Long playCount
+    ) {
     }
 
 

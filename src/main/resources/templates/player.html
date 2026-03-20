@@ -172,6 +172,17 @@
             font-size: 0.85rem;
         }
 
+        .song-meta-secondary {
+            color: rgba(226, 232, 240, 0.75);
+            font-size: 0.78rem;
+        }
+
+        .song-meta-reference,
+        .search-ref {
+            color: rgba(148, 163, 184, 0.92);
+            font-size: 0.75rem;
+        }
+
         #current-song-title {
             color: #f8fafc;
             text-shadow: 0 1px 8px rgba(15, 23, 42, 0.55);
@@ -179,6 +190,10 @@
 
         #current-song-artist {
             color: #e2e8f0 !important;
+        }
+
+        #current-song-reference {
+            color: #94a3b8 !important;
         }
 
         .queue-item .text-muted {
@@ -275,6 +290,25 @@
             gap: 8px;
         }
 
+        .search-modal-body {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            min-height: clamp(320px, 55vh, 640px);
+        }
+
+        .search-modal-footer {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .search-modal-footer .search-toolbar {
+            flex: 1 1 420px;
+        }
+
         .mini-queue {
             max-height: clamp(220px, 38vh, 420px);
             overflow-y: auto;
@@ -282,6 +316,30 @@
 
         .mini-queue .queue-item {
             padding: 10px 12px;
+        }
+
+        .queue-cover {
+            width: 48px;
+            height: 48px;
+            border-radius: 8px;
+            overflow: hidden;
+            flex: 0 0 48px;
+            background: rgba(255, 255, 255, 0.08);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .queue-cover img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .queue-main {
+            min-width: 0;
+            flex: 1;
         }
 
         .album-art {
@@ -294,6 +352,14 @@
             justify-content: center;
             margin: 0 auto 20px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .album-art img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: inherit;
+            display: block;
         }
 
         .album-art i {
@@ -519,7 +585,36 @@
                 </div>
             </div>
 
-            
+            <div class="card shadow-sm mb-4" id="search-card">
+                <div class="card-header d-flex flex-wrap gap-2 align-items-center justify-content-between">
+                    <span class="fw-semibold"><i class="fas fa-search"></i> 搜索与歌单</span>
+                    <div class="btn-group btn-group-sm" role="group" aria-label="search-view">
+                        <button id="search-view-results" class="btn btn-outline-light" type="button">搜索结果</button>
+                        <button id="search-view-playlists" class="btn btn-outline-light" type="button">我的歌单</button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+                        <input id="search-query" class="form-control" style="min-width: 220px; flex: 1;" type="text" placeholder="输入关键词搜索..." />
+                        <button id="search-btn" class="btn btn-success" type="button"><i class="fas fa-search"></i> 搜索</button>
+                        <button id="search-clear" class="btn btn-outline-light" type="button">清空</button>
+                        <select id="search-page-size" class="form-select" style="width: 120px;">
+                            <option value="10">10/页</option>
+                            <option value="20">20/页</option>
+                            <option value="30" selected>30/页</option>
+                            <option value="50">50/页</option>
+                        </select>
+                    </div>
+
+                    <ul class="nav nav-pills search-tabs mb-3" id="search-tabs"></ul>
+
+                    <div id="search-login-panel" class="search-placeholder d-none mb-3">
+                        <div class="mb-2">当前平台需要登录后才能使用搜索与歌单功能。</div>
+                        <button id="search-login-btn" class="btn btn-primary btn-sm" type="button">立即登录</button>
+                    </div>
+                    <div class="text-muted small">搜索结果和歌单内容会在弹框中打开。</div>
+                </div>
+            </div>
         </div>
         <div class="col-12 col-lg-8">
             <div class="card shadow-sm mb-4">
@@ -529,13 +624,22 @@
                 </div>
                 <div class="card-body">
                     <div class="album-art" id="album-art">
-                        <i class="fas fa-music"></i>
+                        <img th:if="${currentIndex >= 0 and queue.size() > currentIndex and queue.get(currentIndex).track().coverUrl() != null and !#strings.isEmpty(queue.get(currentIndex).track().coverUrl())}"
+                             th:src="${queue.get(currentIndex).track().coverUrl()}"
+                             alt="cover"
+                             referrerpolicy="no-referrer" />
+                        <i class="fas fa-music"
+                           th:if="${!(currentIndex >= 0 and queue.size() > currentIndex and queue.get(currentIndex).track().coverUrl() != null and !#strings.isEmpty(queue.get(currentIndex).track().coverUrl()))}"></i>
                     </div>
                     <div class="text-center">
                         <div class="h5 fw-bold" id="current-song-title"
                              th:text="${currentIndex >= 0 and queue.size() > currentIndex ? queue.get(currentIndex).track().title() : '未选择歌曲'}">未选择歌曲</div>
                         <div class="text-muted mb-3" id="current-song-artist"
-                             th:text="${currentIndex >= 0 and queue.size() > currentIndex ? queue.get(currentIndex).track().sourceType() : '等待播放...'}">等待播放...</div>
+                             th:text="${currentIndex >= 0 and queue.size() > currentIndex ? ((queue.get(currentIndex).track().artist() != null and !#strings.isEmpty(queue.get(currentIndex).track().artist())) ? queue.get(currentIndex).track().artist() : queue.get(currentIndex).track().sourceType()) : '等待播放...'}">等待播放...</div>
+                        <div class="text-muted small mb-3" id="current-song-stats"
+                             th:text="${currentIndex >= 0 and queue.size() > currentIndex ? ((queue.get(currentIndex).track().durationMs() > 0 ? (queue.get(currentIndex).track().durationMs() / 1000) + 's' : '') + (queue.get(currentIndex).track().playCount() != null ? ' · ' + queue.get(currentIndex).track().playCount() + '次播放' : '')) : ''}"></div>
+                        <div class="text-muted small mb-3" id="current-song-reference"
+                             th:text="${currentIndex >= 0 and queue.size() > currentIndex ? queue.get(currentIndex).track().sourceType() : ''}"></div>
                     </div>
 
                     <div class="mb-2">
@@ -573,58 +677,6 @@
                 </div>
             </div>
 
-            <div class="card shadow-sm mb-4" id="search-card">
-                <div class="card-header d-flex flex-wrap gap-2 align-items-center justify-content-between">
-                    <span class="fw-semibold"><i class="fas fa-search"></i> 搜索与歌单</span>
-                    <div class="btn-group btn-group-sm" role="group" aria-label="search-view">
-                        <button id="search-view-results" class="btn btn-outline-light" type="button">搜索结果</button>
-                        <button id="search-view-playlists" class="btn btn-outline-light" type="button">我的歌单</button>
-                    </div>
-                </div>
-                <div class="card-body">
-                    <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
-                        <input id="search-query" class="form-control" style="min-width: 220px; flex: 1;" type="text" placeholder="输入关键词搜索..." />
-                        <button id="search-btn" class="btn btn-success" type="button"><i class="fas fa-search"></i> 搜索</button>
-                        <button id="search-clear" class="btn btn-outline-light" type="button">清空</button>
-                        <select id="search-page-size" class="form-select" style="width: 120px;">
-                            <option value="10">10/页</option>
-                            <option value="20">20/页</option>
-                            <option value="30" selected>30/页</option>
-                            <option value="50">50/页</option>
-                        </select>
-                    </div>
-
-                    <ul class="nav nav-pills search-tabs mb-3" id="search-tabs"></ul>
-
-                    <div id="search-login-panel" class="search-placeholder d-none mb-3">
-                        <div class="mb-2">当前平台需要登录后才能使用搜索与歌单功能。</div>
-                        <button id="search-login-btn" class="btn btn-primary btn-sm" type="button">立即登录</button>
-                    </div>
-
-                    <div id="search-breadcrumb" class="text-muted small mb-2 d-none"></div>
-
-                    <div id="search-results" class="search-scroll"></div>
-                    <div id="search-playlists" class="search-scroll d-none"></div>
-                    <div id="search-tracks" class="search-scroll d-none"></div>
-
-                    <div class="search-toolbar mt-3">
-                        <div class="text-muted small">已选 <span id="selected-count">0</span></div>
-                        <div id="search-detail-status" class="text-muted small d-none">正在加载详情...</div>
-                        <div class="d-flex flex-wrap gap-2">
-                            <button id="select-all-page" class="btn btn-outline-light btn-sm" type="button">全选当前页</button>
-                            <button id="clear-selection" class="btn btn-outline-light btn-sm" type="button">清空选择</button>
-                            <button id="add-selected" class="btn btn-success btn-sm" type="button">添加选中</button>
-                        </div>
-                    </div>
-
-                    <div class="search-pagination mt-3">
-                        <button id="search-prev" class="btn btn-outline-light btn-sm" type="button">上一页</button>
-                        <span id="search-page-info" class="text-muted small">1 / 1</span>
-                        <button id="search-next" class="btn btn-outline-light btn-sm" type="button">下一页</button>
-                    </div>
-                </div>
-            </div>
-
             <div class="card shadow-sm">
                 <div class="card-header d-flex align-items-center justify-content-between">
                     <span class="fw-semibold">当前列表</span>
@@ -634,14 +686,27 @@
                 </div>
                 <div class="collapse show" id="miniQueue">
                     <div class="card-body mini-queue">
-                        <div>
+                        <div id="queue-list">
                             <div class="queue-item"
                                  th:each="item,iter : ${queue}"
                                  th:classappend="${iter.index == currentIndex ? ' active' : ''}"
                                  th:data-item-id="${item.id()}">
-                                <div style="min-width: 0; flex: 1;">
+                                <div class="queue-cover">
+                                    <img th:if="${item.track().coverUrl() != null and !#strings.isEmpty(item.track().coverUrl())}"
+                                         th:src="${item.track().coverUrl()}"
+                                         alt="cover"
+                                         loading="lazy"
+                                         referrerpolicy="no-referrer" />
+                                    <i class="fas fa-music" th:if="${item.track().coverUrl() == null or #strings.isEmpty(item.track().coverUrl())}"></i>
+                                </div>
+                                <div class="queue-main">
                                     <div class="song-title" th:text="${item.track().title()}">Title</div>
-                                    <div class="song-artist" th:text="${item.track().sourceType()}">source</div>
+                                    <div class="song-artist"
+                                         th:text="${(item.track().artist() != null and !#strings.isEmpty(item.track().artist()) ? item.track().artist() : item.track().sourceType()) + (item.track().durationMs() > 0 ? ' · ' + (item.track().durationMs() / 1000) + 's' : '') + (item.track().playCount() != null ? ' · ' + item.track().playCount() + '次播放' : '')}">source</div>
+                                    <div class="song-meta-secondary"
+                                         th:text="${(item.track().sourceType() != null and !#strings.isEmpty(item.track().sourceType())) ? item.track().sourceType() : ''}"></div>
+                                    <div class="song-meta-reference"
+                                         th:text="${item.addedBy() != null and !#strings.isEmpty(item.addedBy()) ? '添加者: ' + item.addedBy() : ''}"></div>
                                 </div>
                                 <button class="btn btn-danger btn-sm action-delete" type="button" title="Delete" data-bs-toggle="tooltip" data-bs-placement="top">
                                     <i class="fas fa-trash"></i>
@@ -684,6 +749,42 @@
     </div>
 </div>
 
+<div class="modal fade" id="searchBrowserModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-centered">
+        <div class="modal-content card">
+            <div class="modal-header border-0">
+                <div>
+                    <h5 class="modal-title">搜索与歌单</h5>
+                    <div id="search-modal-subtitle" class="text-muted small">搜索结果</div>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body search-modal-body">
+                <div id="search-breadcrumb" class="text-muted small d-none"></div>
+                <div id="search-results" class="search-scroll"></div>
+                <div id="search-playlists" class="search-scroll d-none"></div>
+                <div id="search-tracks" class="search-scroll d-none"></div>
+            </div>
+            <div class="modal-footer border-0 search-modal-footer">
+                <div id="search-toolbar" class="search-toolbar">
+                    <div class="text-muted small">已选 <span id="selected-count">0</span></div>
+                    <div id="search-detail-status" class="text-muted small d-none">正在加载详情...</div>
+                    <div class="d-flex flex-wrap gap-2">
+                        <button id="select-all-page" class="btn btn-outline-light btn-sm" type="button">全选当前页</button>
+                        <button id="clear-selection" class="btn btn-outline-light btn-sm" type="button">清空选择</button>
+                        <button id="add-selected" class="btn btn-success btn-sm" type="button">添加选中</button>
+                    </div>
+                </div>
+                <div class="search-pagination">
+                    <button id="search-prev" class="btn btn-outline-light btn-sm" type="button">上一页</button>
+                    <span id="search-page-info" class="text-muted small">1 / 1</span>
+                    <button id="search-next" class="btn btn-outline-light btn-sm" type="button">下一页</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js"></script>
@@ -708,11 +809,15 @@
     const $searchLoginBtn = $('#search-login-btn');
     const $searchLoginStatus = $('#search-login-status');
     const $searchLoginQr = $('#search-login-qr');
-    const $searchModal = $('#searchLoginModal');
+    const $searchLoginModal = $('#searchLoginModal');
+    const $searchBrowserModal = $('#searchBrowserModal');
+    const $searchModalSubtitle = $('#search-modal-subtitle');
     const $searchPageInfo = $('#search-page-info');
     const $searchBreadcrumb = $('#search-breadcrumb');
+    const $searchToolbar = $('#search-toolbar');
     const $selectedCount = $('#selected-count');
     const $searchDetailStatus = $('#search-detail-status');
+    const $queueList = $('#queue-list');
 
     let volumeTimer = null;
     let volumeDragging = false;
@@ -728,6 +833,9 @@
     let detailPollTimer = null;
     let detailPollToken = 0;
     let selectedItems = loadSelectedItems();
+    let queueMetadataRefreshRunning = false;
+    const queueRefreshAttempts = {};
+    let currentQueueItems = [];
 
     let playbackState = {
         status: '',
@@ -735,9 +843,77 @@
         paused: false,
         positionMs: 0,
         durationMs: 0,
+        title: '',
+        artist: '',
+        sourceType: '',
+        playCount: null,
+        coverUrl: '',
+        playlistId: '',
+        itemId: '',
         volumePercent: 100,
         syncedAt: 0
     };
+
+    function normalizeQueueAddItem(item) {
+        if (!item || typeof item !== 'object') {
+            return null;
+        }
+        const rawQuery = typeof item.query === 'string' ? item.query : '';
+        const query = rawQuery.trim();
+        if (!query) {
+            return null;
+        }
+        const rawUid = typeof item.uid === 'string' ? item.uid : '';
+        const uid = rawUid.trim() || query;
+        const durationValue = Number(item.durationMs);
+        return {
+            uid,
+            query,
+            title: typeof item.title === 'string' ? item.title.trim() : '',
+            artist: typeof item.artist === 'string' ? item.artist.trim() : '',
+            coverUrl: typeof item.coverUrl === 'string' ? item.coverUrl.trim() : '',
+            durationMs: Number.isFinite(durationValue) ? Math.max(0, Math.round(durationValue)) : 0,
+            source: typeof item.source === 'string' ? item.source.trim() : '',
+            playCount: Number.isFinite(Number(item.playCount)) && Number(item.playCount) > 0 ? Math.round(Number(item.playCount)) : null
+        };
+    }
+
+    function buildQueueAddItemFromSearch(item) {
+        return normalizeQueueAddItem({
+            uid: item && item.uid ? item.uid : '',
+            query: item && item.pageUrl ? item.pageUrl : '',
+            title: item && item.title ? item.title : '',
+            artist: item && item.artist ? item.artist : '',
+            coverUrl: item && item.coverUrl ? item.coverUrl : '',
+            durationMs: item && item.durationMs ? item.durationMs : 0,
+            source: item && item.source ? item.source : currentSource,
+            playCount: item && item.playCount ? item.playCount : null
+        });
+    }
+
+    function encodeQueueAddItem(item) {
+        const normalized = buildQueueAddItemFromSearch(item);
+        if (!normalized) {
+            return '';
+        }
+        return encodeURIComponent(JSON.stringify(normalized));
+    }
+
+    function readQueueAddItem(element) {
+        const $element = $(element);
+        const encoded = $element.attr('data-item');
+        if (encoded) {
+            try {
+                const parsed = JSON.parse(decodeURIComponent(encoded));
+                return normalizeQueueAddItem(parsed);
+            } catch (error) {
+                console.warn('Failed to parse queued search item', error);
+            }
+        }
+        const query = $element.data('query');
+        const uid = $element.data('uid');
+        return normalizeQueueAddItem({ uid, query });
+    }
 
     function getBotId() {
         return new URLSearchParams(window.location.search).get('botId');
@@ -819,14 +995,18 @@
             method: 'POST',
             contentType: 'application/json',
             data: JSON.stringify({ query: songUrl, addedBy: 'web' })
-        }).done(() => window.location.reload())
+        }).done(() => {
+            $('#song-url').val('');
+            showNotification('已添加到播放列表', 'success');
+            loadQueue({ refreshMissing: true, silent: true });
+        })
             .fail((resp) => {
                 const text = resp && resp.responseText ? resp.responseText : '添加失败';
                 showNotification(text, 'error');
             });
     }
 
-    function control(action, reload = true) {
+    function control(action, reload = false) {
         const botId = getBotId();
         if (!botId) return;
         $.ajax({
@@ -835,7 +1015,12 @@
         }).done(() => {
             if (reload) {
                 window.location.reload();
+                return;
             }
+            setTimeout(() => {
+                syncPlaybackState();
+                loadQueue({ refreshMissing: true, silent: true });
+            }, 300);
         }).fail(() => showNotification('操作失败', 'error'));
     }
 
@@ -935,14 +1120,36 @@
         volumeTimer = setTimeout(() => applyVolume(value), 200);
     }
 
+    function updateAlbumArt(url) {
+        const $albumArt = $('#album-art');
+        if (!$albumArt.length) {
+            return;
+        }
+        const safeUrl = typeof url === 'string' ? url.trim() : '';
+        $albumArt.empty();
+        if (safeUrl) {
+            $('<img>', { src: safeUrl, alt: 'cover', loading: 'lazy', referrerpolicy: 'no-referrer' }).appendTo($albumArt);
+            return;
+        }
+        $('<i>', { class: 'fas fa-music' }).appendTo($albumArt);
+    }
+
     function updateNowPlayingMeta(state) {
         if (state.title !== undefined) {
             const title = state.title && state.title.length ? state.title : '未选择歌曲';
             $('#current-song-title').text(title);
         }
-        if (state.sourceType !== undefined) {
-            const source = state.sourceType && state.sourceType.length ? state.sourceType : '等待播放...';
-            $('#current-song-artist').text(source);
+        if (state.artist !== undefined || state.sourceType !== undefined) {
+            const artist = state.artist && state.artist.length ? state.artist : '';
+            const source = state.sourceType && state.sourceType.length ? state.sourceType : '';
+            $('#current-song-artist').text(artist || source || '等待播放...');
+        }
+        if (state.durationMs !== undefined || state.playCount !== undefined || state.sourceType !== undefined) {
+            $('#current-song-stats').text(buildTrackStats(state.durationMs, state.playCount, state.sourceType));
+        }
+        $('#current-song-reference').text(buildTrackReference(state));
+        if (state.coverUrl !== undefined) {
+            updateAlbumArt(state.coverUrl);
         }
     }
 
@@ -964,7 +1171,17 @@
         }
         try {
             const parsed = JSON.parse(raw);
-            return parsed && typeof parsed === 'object' ? parsed : {};
+            if (!parsed || typeof parsed !== 'object') {
+                return {};
+            }
+            const normalized = {};
+            Object.entries(parsed).forEach(([key, value]) => {
+                const item = normalizeQueueAddItem(value);
+                if (item) {
+                    normalized[item.uid || key] = item;
+                }
+            });
+            return normalized;
         } catch (e) {
             return {};
         }
@@ -984,6 +1201,240 @@
         const minutes = Math.floor(safe / 60);
         const seconds = safe % 60;
         return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+    }
+
+    function buildTrackStats(durationMs, playCount, sourceType) {
+        const parts = [];
+        if (durationMs) {
+            parts.push(formatDuration(durationMs));
+        }
+        const formattedPlayCount = formatPlayCount(playCount);
+        if (formattedPlayCount) {
+            parts.push(`${formattedPlayCount}次播放`);
+        }
+        return parts.join(' · ');
+    }
+
+    function extractDisplayHost(url) {
+        if (!isHttpUrl(url)) {
+            return '';
+        }
+        try {
+            const parsed = new URL(url);
+            const host = parsed.hostname || '';
+            return host.replace(/^www\./i, '');
+        } catch (error) {
+            return '';
+        }
+    }
+
+    function buildTrackReference(trackOrState, addedBy) {
+        const parts = [];
+        const sourceType = trackOrState && trackOrState.sourceType ? trackOrState.sourceType : '';
+        const host = extractDisplayHost(trackOrState && trackOrState.sourceId ? trackOrState.sourceId : trackOrState && trackOrState.pageUrl ? trackOrState.pageUrl : '');
+        if (sourceType) {
+            parts.push(sourceType);
+        }
+        if (host && host !== sourceType) {
+            parts.push(host);
+        }
+        if (addedBy) {
+            parts.push(`添加者: ${addedBy}`);
+        }
+        return parts.join(' · ');
+    }
+
+    function escapeHtml(value) {
+        return String(value == null ? '' : value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function normalizeQueueResponseItem(item) {
+        if (!item || typeof item !== 'object' || !item.id || !item.track) {
+            return null;
+        }
+        const track = item.track || {};
+        const durationMs = Number(track.durationMs) || 0;
+        return {
+            id: String(item.id),
+            botId: item.botId || '',
+            playlistId: item.playlistId || '',
+            addedBy: item.addedBy || '',
+            addedAt: item.addedAt || '',
+            track: {
+                id: track.id || '',
+                title: typeof track.title === 'string' ? track.title : '',
+                sourceType: typeof track.sourceType === 'string' ? track.sourceType : '',
+                sourceId: typeof track.sourceId === 'string' ? track.sourceId : '',
+                streamUrl: typeof track.streamUrl === 'string' ? track.streamUrl : '',
+                durationMs: Math.max(0, durationMs),
+                coverUrl: typeof track.coverUrl === 'string' ? track.coverUrl : '',
+                artist: typeof track.artist === 'string' ? track.artist : '',
+                playCount: Number.isFinite(Number(track.playCount)) && Number(track.playCount) > 0 ? Math.round(Number(track.playCount)) : null
+            }
+        };
+    }
+
+    function isHttpUrl(value) {
+        return typeof value === 'string' && /^https?:\/\//i.test(value.trim());
+    }
+
+    function isTrackMetadataIncomplete(track) {
+        if (!track || !isHttpUrl(track.sourceId)) {
+            return false;
+        }
+        const title = typeof track.title === 'string' ? track.title.trim() : '';
+        const sourceType = typeof track.sourceType === 'string' ? track.sourceType.trim() : '';
+        const coverUrl = typeof track.coverUrl === 'string' ? track.coverUrl.trim() : '';
+        const streamUrl = typeof track.streamUrl === 'string' ? track.streamUrl.trim() : '';
+        return !title
+            || title === track.sourceId
+            || isHttpUrl(title)
+            || !sourceType
+            || !coverUrl
+            || !streamUrl
+            || (Number(track.durationMs) || 0) <= 0;
+    }
+
+    function renderQueue(items) {
+        if (!$queueList.length) {
+            return;
+        }
+        if (!items || items.length === 0) {
+            $queueList.html('<div class="text-muted text-center py-3">队列为空</div>');
+            return;
+        }
+        const html = items.map((item) => buildQueueRow(item)).join('');
+        $queueList.html(html);
+        if (playbackState.itemId) {
+            markPlaying(playbackState.itemId);
+        }
+    }
+
+    function buildQueueRow(item) {
+        const track = item && item.track ? item.track : {};
+        const coverTag = track.coverUrl
+            ? `<img src="${escapeHtml(track.coverUrl)}" alt="cover" loading="lazy" referrerpolicy="no-referrer" />`
+            : '<i class="fas fa-music"></i>';
+        const title = escapeHtml(track.title || '未知歌曲');
+        const artist = escapeHtml(track.artist || track.sourceType || '');
+        const stats = escapeHtml(buildTrackStats(track.durationMs, track.playCount, track.sourceType));
+        const reference = escapeHtml(buildTrackReference(track, item.addedBy));
+        return `
+            <div class="queue-item" data-item-id="${escapeHtml(item.id)}">
+                <div class="queue-cover">${coverTag}</div>
+                <div class="queue-main">
+                    <div class="song-title">${title}</div>
+                    <div class="song-artist">${artist}${stats ? ` · ${stats}` : ''}</div>
+                    <div class="song-meta-secondary">${reference}</div>
+                </div>
+                <button class="btn btn-danger btn-sm action-delete" type="button" title="Delete" data-bs-toggle="tooltip" data-bs-placement="top">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        `;
+    }
+
+    function updateNowPlayingFromQueue(items) {
+        if (!items || !items.length || !playbackState.itemId) {
+            return;
+        }
+        const current = items.find((item) => String(item.id) === String(playbackState.itemId));
+        if (!current || !current.track) {
+            return;
+        }
+        const track = current.track;
+        const merged = {
+            ...playbackState,
+            title: (!playbackState.title || isHttpUrl(playbackState.title)) && track.title ? track.title : playbackState.title,
+            artist: !playbackState.artist && track.artist ? track.artist : playbackState.artist,
+            sourceType: !playbackState.sourceType && track.sourceType ? track.sourceType : playbackState.sourceType,
+            coverUrl: !playbackState.coverUrl && track.coverUrl ? track.coverUrl : playbackState.coverUrl,
+            durationMs: (!playbackState.durationMs || playbackState.durationMs <= 0) && track.durationMs ? track.durationMs : playbackState.durationMs,
+            playCount: !playbackState.playCount && track.playCount ? track.playCount : playbackState.playCount
+        };
+        playbackState = merged;
+        updateNowPlayingMeta(merged);
+        updateProgressFromState();
+    }
+
+    function applyRefreshedQueueItem(item) {
+        const normalized = normalizeQueueResponseItem(item);
+        if (!normalized) {
+            return;
+        }
+        const index = currentQueueItems.findIndex((entry) => String(entry.id) === String(normalized.id));
+        if (index >= 0) {
+            currentQueueItems[index] = normalized;
+        } else {
+            currentQueueItems.push(normalized);
+        }
+        renderQueue(currentQueueItems);
+        updateNowPlayingFromQueue(currentQueueItems);
+    }
+
+    function loadQueue(options = {}) {
+        const botId = getBotId();
+        const playlistId = getPlaylistId();
+        if (!botId || !playlistId) {
+            renderQueue([]);
+            return $.Deferred().resolve([]).promise();
+        }
+        return $.getJSON(`/internal/queue/${botId}/${encodeURIComponent(playlistId)}`)
+            .done((data) => {
+                const items = (data || []).map((item) => normalizeQueueResponseItem(item)).filter(Boolean);
+                currentQueueItems = items;
+                renderQueue(items);
+                updateNowPlayingFromQueue(items);
+                if (options.refreshMissing !== false) {
+                    refreshMissingQueueItems(items);
+                }
+            })
+            .fail(() => {
+                currentQueueItems = [];
+                if (!options.silent) {
+                    showNotification('队列加载失败', 'error');
+                }
+            });
+    }
+
+    function refreshMissingQueueItems(items) {
+        const botId = getBotId();
+        const playlistId = getPlaylistId();
+        if (!botId || !playlistId || queueMetadataRefreshRunning || !items || !items.length) {
+            return;
+        }
+        const pending = items.filter((item) => item && item.track && isTrackMetadataIncomplete(item.track) && !queueRefreshAttempts[item.id]);
+        if (!pending.length) {
+            return;
+        }
+        queueMetadataRefreshRunning = true;
+        let changed = false;
+        let sequence = $.Deferred().resolve().promise();
+        pending.forEach((item) => {
+            queueRefreshAttempts[item.id] = 'running';
+            sequence = sequence.then(() => $.ajax({
+                url: `/internal/queue/${botId}/${encodeURIComponent(playlistId)}/items/${encodeURIComponent(item.id)}/refresh`,
+                method: 'POST',
+                timeout: 25000
+            }).done((data) => {
+                changed = true;
+                queueRefreshAttempts[item.id] = 'done';
+                applyRefreshedQueueItem(data);
+            }).fail(() => {
+                queueRefreshAttempts[item.id] = 'failed';
+            }));
+        });
+        sequence.always(() => {
+            queueMetadataRefreshRunning = false;
+            if (changed) {
+                syncPlaybackState();
+            }
+        });
     }
 
     function formatPlayCount(value) {
@@ -1045,6 +1496,14 @@
         }
     }
 
+    function showSearchBrowser() {
+        if (!$searchBrowserModal.length) {
+            return;
+        }
+        const modal = bootstrap.Modal.getOrCreateInstance($searchBrowserModal[0]);
+        modal.show();
+    }
+
     function setSearchView(view) {
         searchView = view;
         $('#search-view-results').toggleClass('btn-success', view === 'results').toggleClass('btn-outline-light', view !== 'results');
@@ -1052,7 +1511,16 @@
         $searchResults.toggleClass('d-none', view !== 'results');
         $searchPlaylists.toggleClass('d-none', view !== 'playlists');
         $searchTracks.toggleClass('d-none', view !== 'tracks');
-        $searchBreadcrumb.toggleClass('d-none', view === 'results');
+        $searchBreadcrumb.toggleClass('d-none', view !== 'tracks');
+        $searchToolbar.toggleClass('d-none', view === 'playlists');
+        if ($searchModalSubtitle.length) {
+            const subtitle = view === 'results'
+                ? '搜索结果'
+                : view === 'playlists'
+                    ? '我的歌单'
+                    : `歌单详情${currentPlaylistName ? ` · ${currentPlaylistName}` : ''}`;
+            $searchModalSubtitle.text(subtitle);
+        }
         if (view !== 'results') {
             stopDetailPolling();
         }
@@ -1092,19 +1560,22 @@
         const playCountText = playCount ? ` · ${playCount}次播放` : '';
         const durationText = item.durationMs ? ` · ${formatDuration(item.durationMs)}` : '';
         const sub = `${item.artist || ''}${durationText}${playCountText}`;
+        const ref = buildTrackReference(item);
         const coverTag = item.coverUrl
-            ? `<img class="search-cover" src="${item.coverUrl}" alt="cover" />`
+            ? `<img class="search-cover" src="${item.coverUrl}" alt="cover" loading="lazy" referrerpolicy="no-referrer" />`
             : `<div class="search-cover"></div>`;
+        const encodedItem = encodeQueueAddItem(item);
         return `
             <div class="search-result">
-                <input class="form-check-input search-select" type="checkbox" data-uid="${item.uid}" data-query="${item.pageUrl}" ${checked ? 'checked' : ''} />
+                <input class="form-check-input search-select" type="checkbox" data-uid="${item.uid}" data-query="${item.pageUrl}" data-item="${encodedItem}" ${checked ? 'checked' : ''} />
                 ${coverTag}
                 <div class="search-meta">
                     <div class="search-title">${item.title || '未知歌曲'}</div>
                     <div class="search-sub">${sub}</div>
+                    <div class="search-ref">${ref}</div>
                 </div>
                 <div class="search-actions">
-                    <button class="btn btn-outline-light btn-sm add-single" type="button" data-query="${item.pageUrl}">添加</button>
+                    <button class="btn btn-outline-light btn-sm add-single" type="button" data-query="${item.pageUrl}" data-item="${encodedItem}">添加</button>
                 </div>
             </div>
         `;
@@ -1129,17 +1600,19 @@
         }
         const html = items.map((item) => {
             const coverTag = item.coverUrl
-                ? `<img class="search-cover" src="${item.coverUrl}" alt="cover" />`
+                ? `<img class="search-cover" src="${item.coverUrl}" alt="cover" loading="lazy" referrerpolicy="no-referrer" />`
                 : `<div class="search-cover"></div>`;
             const countText = item.trackCount ? `${item.trackCount} 首` : '';
             const playText = formatPlayCount(item.playCount);
             const sub = `${countText}${playText ? ` · ${playText}次播放` : ''}`;
+            const ref = item.source ? escapeHtml(item.source) : '';
             return `
                 <div class="search-result">
                     ${coverTag}
                     <div class="search-meta">
                         <div class="search-title">${item.name || '未命名歌单'}</div>
                         <div class="search-sub">${sub}</div>
+                        <div class="search-ref">${ref}</div>
                     </div>
                     <div class="search-actions">
                         <button class="btn btn-outline-light btn-sm view-playlist" data-id="${item.id}" data-name="${item.name || ''}" type="button">查看</button>
@@ -1251,16 +1724,24 @@
         schedule();
     }
 
-    function loadSearch(page) {
+    function loadSearch(page, openModal = false) {
         const botId = getBotId();
         const query = $('#search-query').val().trim();
         if (!query) {
             renderPlaceholder($searchResults, '请输入关键词开始搜索');
+            if (openModal) {
+                setSearchView('results');
+                showSearchBrowser();
+            }
             return;
         }
         stopDetailPolling();
         searchPage = page;
         setSearchView('results');
+        renderPlaceholder($searchResults, '正在搜索...');
+        if (openModal) {
+            showSearchBrowser();
+        }
         $.getJSON('/internal/search', {
             botId,
             source: currentSource,
@@ -1278,12 +1759,17 @@
         });
     }
 
-    function loadPlaylists(page) {
+    function loadPlaylists(page, openModal = false) {
         const botId = getBotId();
         stopDetailPolling();
         searchPage = page;
         currentPlaylistId = '';
         setSearchView('playlists');
+        $searchBreadcrumb.addClass('d-none').text('');
+        renderPlaceholder($searchPlaylists, '正在加载歌单...');
+        if (openModal) {
+            showSearchBrowser();
+        }
         $.getJSON(`/internal/search/${currentSource}/playlists`, {
             botId,
             page: searchPage,
@@ -1297,7 +1783,7 @@
         });
     }
 
-    function loadPlaylistTracks(playlistId, page, playlistName) {
+    function loadPlaylistTracks(playlistId, page, playlistName, openModal = false) {
         const botId = getBotId();
         stopDetailPolling();
         searchPage = page;
@@ -1305,6 +1791,10 @@
         currentPlaylistName = playlistName || playlistId;
         setSearchView('tracks');
         $searchBreadcrumb.text(`歌单：${currentPlaylistName}（第 ${searchPage} 页）`).removeClass('d-none');
+        renderPlaceholder($searchTracks, '正在加载歌单歌曲...');
+        if (openModal) {
+            showSearchBrowser();
+        }
         $.getJSON(`/internal/search/${currentSource}/playlists/${encodeURIComponent(playlistId)}/tracks`, {
             botId,
             page: searchPage,
@@ -1324,7 +1814,7 @@
             showNotification('请先选择机器人', 'warning');
             return;
         }
-        const queries = [];
+        const itemsToAdd = [];
         const pageSize = Math.min(50, searchPageSize);
         let page = 1;
         const title = playlistName ? `正在导入歌单：${playlistName}` : '正在导入歌单，请稍候...';
@@ -1337,55 +1827,63 @@
             }).then((data) => {
                 const items = data.items || [];
                 items.forEach((item) => {
-                    if (item.pageUrl) {
-                        queries.push(item.pageUrl);
+                    const normalized = buildQueueAddItemFromSearch(item);
+                    if (normalized) {
+                        itemsToAdd.push(normalized);
                     }
                 });
                 const total = data.total || 0;
                 page += 1;
                 if (items.length === 0) {
-                    return queries;
+                    return itemsToAdd;
                 }
-                if (total > 0 && queries.length >= total) {
-                    return queries;
+                if (total > 0 && itemsToAdd.length >= total) {
+                    return itemsToAdd;
                 }
                 return fetchPage();
             });
         };
         fetchPage().then(() => {
-            addQueries(queries);
+            addItems(itemsToAdd);
         }).catch(() => {
             showNotification('导入歌单失败', 'error');
         });
     }
 
-    function addQueries(queries) {
+    function addItems(items) {
         const botId = getBotId();
         const playlistId = getPlaylistId();
-        if (!botId || !queries || queries.length === 0) return;
+        const normalizedItems = (items || []).map((item) => normalizeQueueAddItem(item)).filter(Boolean);
+        if (!botId || normalizedItems.length === 0) return;
         $.ajax({
             url: `/internal/queue/${botId}/${encodeURIComponent(playlistId)}/add`,
             method: 'POST',
             contentType: 'application/json',
-            data: JSON.stringify({ queries, addedBy: 'web' })
+            data: JSON.stringify({ items: normalizedItems, addedBy: 'web' })
         }).done(() => {
             showNotification('已添加到播放列表', 'success');
             selectedItems = {};
             persistSelectedItems();
             updateSelectedCount();
+            $('.search-select').prop('checked', false);
+            loadQueue({ refreshMissing: true, silent: true });
         }).fail((resp) => {
             const text = resp && resp.responseText ? resp.responseText : '添加失败';
             showNotification(text, 'error');
         });
     }
 
+    function addQueries(queries) {
+        const items = (queries || []).map((query) => normalizeQueueAddItem({ query }));
+        addItems(items);
+    }
+
     function selectAllCurrentPage() {
         const $list = searchView === 'tracks' ? $searchTracks : $searchResults;
         $list.find('.search-select').each(function () {
-            const uid = $(this).data('uid');
-            const query = $(this).data('query');
-            if (!uid || !query) return;
-            selectedItems[uid] = { uid, query };
+            const item = readQueueAddItem(this);
+            if (!item) return;
+            selectedItems[item.uid] = item;
             $(this).prop('checked', true);
         });
         persistSelectedItems();
@@ -1427,7 +1925,7 @@
                 const text = resp && resp.responseText ? resp.responseText : '登录失败';
                 $searchLoginStatus.text(text);
             });
-        const modal = bootstrap.Modal.getOrCreateInstance($searchModal[0]);
+        const modal = bootstrap.Modal.getOrCreateInstance($searchLoginModal[0]);
         modal.show();
     }
 
@@ -1441,7 +1939,7 @@
                         clearInterval(loginPollTimer);
                         loginPollTimer = null;
                     }
-                    const modal = bootstrap.Modal.getOrCreateInstance($searchModal[0]);
+                    const modal = bootstrap.Modal.getOrCreateInstance($searchLoginModal[0]);
                     modal.hide();
                     fetchSearchStatus(true);
                 } else if (data.status === 'SCANNED') {
@@ -1531,13 +2029,35 @@
                     paused: Boolean(data.paused),
                     positionMs: Number(data.positionMs) || 0,
                     durationMs: Number(data.durationMs) || 0,
+                    title: data.title || '',
+                    artist: data.artist || '',
+                    sourceType: data.sourceType || '',
+                    playCount: Number.isFinite(Number(data.playCount)) && Number(data.playCount) > 0 ? Math.round(Number(data.playCount)) : null,
+                    coverUrl: data.coverUrl || '',
+                    playlistId: data.playlistId || '',
+                    itemId: data.itemId || '',
                     volumePercent: clampVolume(data.volumePercent),
                     syncedAt: Date.now()
                 };
+                if (currentQueueItems.length) {
+                    const current = currentQueueItems.find((item) => String(item.id) === String(playbackState.itemId));
+                    if (current && current.track) {
+                        const track = current.track;
+                        playbackState = {
+                            ...playbackState,
+                            title: track.title || playbackState.title,
+                            artist: track.artist || playbackState.artist,
+                            sourceType: track.sourceType || playbackState.sourceType,
+                            coverUrl: track.coverUrl || playbackState.coverUrl,
+                            durationMs: track.durationMs || playbackState.durationMs,
+                            playCount: track.playCount || playbackState.playCount
+                        };
+                    }
+                }
                 updatePlayPauseButton(playbackState.playing);
                 updateStatusText(playbackState);
-                updateNowPlayingMeta(data);
-                updateQueueHighlight(data);
+                updateNowPlayingMeta(playbackState);
+                updateQueueHighlight(playbackState);
                 updateProgressFromState();
                 if (!volumeDragging) {
                     updateVolumeDisplay(playbackState.volumePercent);
@@ -1589,7 +2109,11 @@
         $.ajax({
             url: `/internal/queue/${botId}/${encodeURIComponent(playlistId)}/items/${encodeURIComponent(itemId)}`,
             method: 'DELETE'
-        }).done(() => window.location.reload())
+        }).done(() => {
+            showNotification('已删除', 'success');
+            loadQueue({ refreshMissing: false, silent: true });
+            syncPlaybackState();
+        })
             .fail(() => showNotification('删除失败', 'error'));
     }
 
@@ -1687,7 +2211,7 @@
             setActiveSource(source);
         });
 
-        $('#search-btn').on('click', () => loadSearch(1));
+        $('#search-btn').on('click', () => loadSearch(1, true));
         $('#search-clear').on('click', () => {
             $('#search-query').val('');
             renderPlaceholder($searchResults, '请输入关键词开始搜索');
@@ -1695,7 +2219,7 @@
         });
         $('#search-query').on('keypress', (event) => {
             if (event.key === 'Enter') {
-                loadSearch(1);
+                loadSearch(1, true);
             }
         });
         $('#search-page-size').on('change', function () {
@@ -1710,12 +2234,10 @@
         });
 
         $('#search-view-results').on('click', () => {
-            setSearchView('results');
-            loadSearch(1);
+            loadSearch(1, true);
         });
         $('#search-view-playlists').on('click', () => {
-            setSearchView('playlists');
-            loadPlaylists(1);
+            loadPlaylists(1, true);
         });
 
         $('#search-prev').on('click', () => {
@@ -1741,50 +2263,51 @@
         });
 
         $searchLoginBtn.on('click', startSearchLogin);
-        $searchModal.on('hidden.bs.modal', () => {
+        $searchLoginModal.on('hidden.bs.modal', () => {
             if (loginPollTimer) {
                 clearInterval(loginPollTimer);
                 loginPollTimer = null;
             }
         });
+        $searchBrowserModal.on('hidden.bs.modal', () => {
+            stopDetailPolling();
+        });
 
         $searchResults.on('change', '.search-select', function () {
-            const uid = $(this).data('uid');
-            const query = $(this).data('query');
-            if (!uid || !query) return;
+            const item = readQueueAddItem(this);
+            if (!item) return;
             if ($(this).is(':checked')) {
-                selectedItems[uid] = { uid, query };
+                selectedItems[item.uid] = item;
             } else {
-                delete selectedItems[uid];
+                delete selectedItems[item.uid];
             }
             persistSelectedItems();
             updateSelectedCount();
         });
 
         $searchTracks.on('change', '.search-select', function () {
-            const uid = $(this).data('uid');
-            const query = $(this).data('query');
-            if (!uid || !query) return;
+            const item = readQueueAddItem(this);
+            if (!item) return;
             if ($(this).is(':checked')) {
-                selectedItems[uid] = { uid, query };
+                selectedItems[item.uid] = item;
             } else {
-                delete selectedItems[uid];
+                delete selectedItems[item.uid];
             }
             persistSelectedItems();
             updateSelectedCount();
         });
 
         $searchResults.on('click', '.add-single', function () {
-            const query = $(this).data('query');
-            if (query) {
-                addQueries([query]);
+            const item = readQueueAddItem(this);
+            if (item) {
+                addItems([item]);
             }
         });
 
         $searchTracks.on('click', '.add-single', function () {
-            const query = $(this).data('query');
-            if (query) {
-                addQueries([query]);
+            const item = readQueueAddItem(this);
+            if (item) {
+                addItems([item]);
             }
         });
 
@@ -1792,7 +2315,7 @@
             const playlistId = $(this).data('id');
             const playlistName = $(this).data('name');
             if (!playlistId) return;
-            loadPlaylistTracks(playlistId, 1, playlistName);
+            loadPlaylistTracks(playlistId, 1, playlistName, true);
         });
 
         $searchPlaylists.on('click', '.import-playlist', function () {
@@ -1805,17 +2328,24 @@
         $('#select-all-page').on('click', selectAllCurrentPage);
         $('#clear-selection').on('click', clearSelection);
         $('#add-selected').on('click', () => {
-            const queries = Object.values(selectedItems).map((item) => item.query).filter(Boolean);
-            addQueries(queries);
+            const items = Object.values(selectedItems).map((item) => normalizeQueueAddItem(item)).filter(Boolean);
+            addItems(items);
         });
 
         const initialMode = $('body').data('mode') || 'order';
         applyMode(initialMode, false);
         updateVolumeDisplay(playbackState.volumePercent);
+        loadQueue({ refreshMissing: true, silent: true });
         syncPlaybackState();
         setInterval(updateProgressFromState, 1000);
         setInterval(syncPlaybackState, 5000);
+        setInterval(() => loadQueue({ refreshMissing: false, silent: true }), 15000);
     });
 </script>
 </body>
 </html>
+
+
+
+
+

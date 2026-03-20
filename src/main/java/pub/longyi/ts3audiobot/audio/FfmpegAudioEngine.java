@@ -6,6 +6,8 @@ import pub.longyi.ts3audiobot.queue.Track;
 import pub.longyi.ts3audiobot.ts3.Ts3VoiceClient;
 import pub.longyi.ts3audiobot.ts3.full.TsFullClient;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -278,6 +280,10 @@ public final class FfmpegAudioEngine implements AudioEngine {
     }
 
     private void startPump(String sourceType, String sourceId, String streamUrl, long positionMs) {
+        if (isLocalFile(streamUrl)) {
+            pump.start(streamUrl, positionMs);
+            return;
+        }
         if (tryStartWithPipe(sourceType, sourceId, positionMs)) {
             return;
         }
@@ -312,6 +318,21 @@ public final class FfmpegAudioEngine implements AudioEngine {
     private boolean isYtSource(String sourceType) {
         String normalized = normalizeSourceType(sourceType);
         return SOURCE_YT.equals(normalized) || SOURCE_YTMUSIC.equals(normalized);
+    }
+
+    private boolean isLocalFile(String streamUrl) {
+        if (streamUrl == null || streamUrl.isBlank()) {
+            return false;
+        }
+        String lower = streamUrl.trim().toLowerCase();
+        if (lower.startsWith("http://") || lower.startsWith("https://")) {
+            return false;
+        }
+        try {
+            return Files.isRegularFile(Path.of(streamUrl));
+        } catch (Exception ex) {
+            return false;
+        }
     }
 
     private String resolveYtCommand(String sourceType) {

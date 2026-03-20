@@ -4,6 +4,7 @@ import org.springframework.stereotype.Service;
 import pub.longyi.ts3audiobot.audio.FfmpegAudioEngine;
 import pub.longyi.ts3audiobot.config.AppConfig;
 import pub.longyi.ts3audiobot.config.ConfigService;
+import pub.longyi.ts3audiobot.media.TrackMediaService;
 import pub.longyi.ts3audiobot.queue.QueueService;
 import pub.longyi.ts3audiobot.ts3.Ts3ClientFactory;
 import pub.longyi.ts3audiobot.util.IdGenerator;
@@ -40,6 +41,7 @@ public final class BotManager {
     private final ConfigService configService;
     private final Ts3ClientFactory ts3ClientFactory;
     private final QueueService queueService;
+    private final TrackMediaService trackMediaService;
 
     /**
      * 创建 BotManager 实例。
@@ -47,10 +49,16 @@ public final class BotManager {
      * @param ts3ClientFactory 参数 ts3ClientFactory
      * @param queueService 参数 queueService
      */
-    public BotManager(ConfigService configService, Ts3ClientFactory ts3ClientFactory, QueueService queueService) {
+    public BotManager(
+        ConfigService configService,
+        Ts3ClientFactory ts3ClientFactory,
+        QueueService queueService,
+        TrackMediaService trackMediaService
+    ) {
         this.configService = configService;
         this.ts3ClientFactory = ts3ClientFactory;
         this.queueService = queueService;
+        this.trackMediaService = trackMediaService;
     }
 
 
@@ -88,6 +96,7 @@ public final class BotManager {
             botConfig,
             voiceClient,
             new FfmpegAudioEngine(configService, voiceClient),
+            trackMediaService,
             queueService,
             scheduler
         );

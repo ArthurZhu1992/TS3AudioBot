@@ -7,16 +7,14 @@ package pub.longyi.ts3audiobot.queue;
  * GitHub: https://github.com/ArthurZhu1992
  *
  * Description:
- * 负责 Track 相关功能。
- */
+ * 璐熻矗 Track 鐩稿叧鍔熻兘銆? */
 
 
 /**
- * Track 相关功能。
- *
- * <p>职责：负责 Track 相关功能。</p>
- * <p>线程安全：无显式保证。</p>
- * <p>约束：调用方需遵守方法契约。</p>
+ * Track 鐩稿叧鍔熻兘銆? *
+ * <p>鑱岃矗锛氳礋璐?Track 鐩稿叧鍔熻兘銆?/p>
+ * <p>绾跨▼瀹夊叏锛氭棤鏄惧紡淇濊瘉銆?/p>
+ * <p>绾︽潫锛氳皟鐢ㄦ柟闇€閬靛畧鏂规硶濂戠害銆?/p>
  */
 public record Track(
     String id,
@@ -24,6 +22,9 @@ public record Track(
     String sourceType,
     String sourceId,
     String streamUrl,
-    long durationMs
+    long durationMs,
+    String coverUrl,
+    String artist,
+    Long playCount
 ) {
 }

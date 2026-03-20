@@ -4,8 +4,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import pub.longyi.ts3audiobot.config.ConfigService;
+import pub.longyi.ts3audiobot.resolver.ResolverRegistry;
+import pub.longyi.ts3audiobot.resolver.TrackResolver;
 import pub.longyi.ts3audiobot.util.IdGenerator;
 
 import java.io.IOException;
@@ -17,6 +20,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -27,16 +31,14 @@ import java.util.concurrent.ConcurrentHashMap;
  * GitHub: https://github.com/ArthurZhu1992
  *
  * Description:
- * 负责 QueueService 相关功能。
- */
+ * 璐熻矗 QueueService 鐩稿叧鍔熻兘銆? */
 
 
 /**
- * QueueService 相关功能。
- *
- * <p>职责：负责 QueueService 相关功能。</p>
- * <p>线程安全：无显式保证。</p>
- * <p>约束：调用方需遵守方法契约。</p>
+ * QueueService 鐩稿叧鍔熻兘銆? *
+ * <p>鑱岃矗锛氳礋璐?QueueService 鐩稿叧鍔熻兘銆?/p>
+ * <p>绾跨▼瀹夊叏锛氭棤鏄惧紡淇濊瘉銆?/p>
+ * <p>绾︽潫锛氳皟鐢ㄦ柟闇€閬靛畧鏂规硶濂戠害銆?/p>
  */
 @Slf4j
 @Service
@@ -49,42 +51,46 @@ public final class QueueService {
     private final Object stateLock = new Object();
     private final ObjectMapper objectMapper;
     private final Path storePath;
+    private final List<TrackResolver> repairResolvers;
 
 
     /**
-     * 创建 QueueService 实例。
-     * @param configService 参数 configService
+     * 鍒涘缓 QueueService 瀹炰緥銆?     * @param configService 鍙傛暟 configService
      */
+    @Autowired
     public QueueService(ConfigService configService) {
+        this(configService, initRepairResolvers(configService));
+    }
+
+    QueueService(ConfigService configService, List<TrackResolver> repairResolvers) {
         this.storePath = configService.getDataDir().resolve("queues.json");
+        this.repairResolvers = repairResolvers == null ? List.of() : List.copyOf(repairResolvers);
         this.objectMapper = new ObjectMapper()
 
 
             .registerModule(new JavaTimeModule())
             .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
         loadSnapshot();
-
-
     }
 
 
     /**
-     * 执行 list 操作。
-     * @param botId 参数 botId
-     * @return 返回值
-     */
+     * 鎵ц list 鎿嶄綔銆?     * @param botId 鍙傛暟 botId
+     * @return 杩斿洖鍊?     */
     public List<QueueItem> list(String botId) {
         return list(botId, getActivePlaylist(botId));
     }
 
+    public List<QueueItem> rawList(String botId) {
+        return rawList(botId, getActivePlaylist(botId));
+    }
+
 
     /**
-     * 执行 add 操作。
-     * @param botId 参数 botId
-     * @param track 参数 track
-     * @param addedBy 参数 addedBy
-     * @return 返回值
-     */
+     * 鎵ц add 鎿嶄綔銆?     * @param botId 鍙傛暟 botId
+     * @param track 鍙傛暟 track
+     * @param addedBy 鍙傛暟 addedBy
+     * @return 杩斿洖鍊?     */
     public QueueItem add(String botId, Track track, String addedBy) {
 
         return add(botId, getActivePlaylist(botId), track, addedBy);
@@ -92,31 +98,25 @@ public final class QueueService {
 
 
     /**
-     * 执行 next 操作。
-     * @param botId 参数 botId
-     * @return 返回值
-     */
+     * 鎵ц next 鎿嶄綔銆?     * @param botId 鍙傛暟 botId
+     * @return 杩斿洖鍊?     */
     public QueueItem next(String botId) {
         return next(botId, getActivePlaylist(botId));
     }
 
 
     /**
-     * 执行 getPosition 操作。
-     * @param botId 参数 botId
-     * @return 返回值
-     */
+     * 鎵ц getPosition 鎿嶄綔銆?     * @param botId 鍙傛暟 botId
+     * @return 杩斿洖鍊?     */
     public int getPosition(String botId) {
         return getPosition(botId, getActivePlaylist(botId));
     }
 
 
     /**
-     * 执行 getPosition 操作。
-     * @param botId 参数 botId
-     * @param playlistId 参数 playlistId
-     * @return 返回值
-     */
+     * 鎵ц getPosition 鎿嶄綔銆?     * @param botId 鍙傛暟 botId
+     * @param playlistId 鍙傛暟 playlistId
+     * @return 杩斿洖鍊?     */
     public int getPosition(String botId, String playlistId) {
         synchronized (stateLock) {
             return resolvePosition(botId, playlistId);
@@ -125,8 +125,7 @@ public final class QueueService {
 
 
     /**
-     * 执行 stepBack 操作。
-     * @param botId 参数 botId
+     * 鎵ц stepBack 鎿嶄綔銆?     * @param botId 鍙傛暟 botId
      */
     public void stepBack(String botId) {
         stepBack(botId, getActivePlaylist(botId));
@@ -135,9 +134,8 @@ public final class QueueService {
 
 
     /**
-     * 执行 stepBack 操作。
-     * @param botId 参数 botId
-     * @param playlistId 参数 playlistId
+     * 鎵ц stepBack 鎿嶄綔銆?     * @param botId 鍙傛暟 botId
+     * @param playlistId 鍙傛暟 playlistId
      */
     public void stepBack(String botId, String playlistId) {
         synchronized (stateLock) {
@@ -152,8 +150,7 @@ public final class QueueService {
 
 
     /**
-     * 执行 clear 操作。
-     * @param botId 参数 botId
+     * 鎵ц clear 鎿嶄綔銆?     * @param botId 鍙傛暟 botId
      */
     public void clear(String botId) {
 
@@ -162,25 +159,34 @@ public final class QueueService {
 
 
     /**
-     * 执行 list 操作。
-     * @param botId 参数 botId
-     * @param playlistId 参数 playlistId
-     * @return 返回值
-     */
+     * 鎵ц list 鎿嶄綔銆?     * @param botId 鍙傛暟 botId
+     * @param playlistId 鍙傛暟 playlistId
+     * @return 杩斿洖鍊?     */
     public List<QueueItem> list(String botId, String playlistId) {
-        return Collections.unmodifiableList(resolveQueue(botId, playlistId));
+        synchronized (stateLock) {
+            List<QueueItem> queue = resolveQueue(botId, playlistId);
+            if (repairQueueItems(botId, normalizePlaylistId(playlistId), queue)) {
+                persistSnapshot();
+            }
+            return Collections.unmodifiableList(new ArrayList<>(queue));
+        }
 
+    }
+
+    public List<QueueItem> rawList(String botId, String playlistId) {
+        synchronized (stateLock) {
+            List<QueueItem> queue = resolveQueue(botId, playlistId);
+            return Collections.unmodifiableList(new ArrayList<>(queue));
+        }
     }
 
 
     /**
-     * 执行 add 操作。
-     * @param botId 参数 botId
-     * @param playlistId 参数 playlistId
-     * @param track 参数 track
-     * @param addedBy 参数 addedBy
-     * @return 返回值
-     */
+     * 鎵ц add 鎿嶄綔銆?     * @param botId 鍙傛暟 botId
+     * @param playlistId 鍙傛暟 playlistId
+     * @param track 鍙傛暟 track
+     * @param addedBy 鍙傛暟 addedBy
+     * @return 杩斿洖鍊?     */
     public QueueItem add(String botId, String playlistId, Track track, String addedBy) {
 
         String resolvedPlaylist = normalizePlaylistId(playlistId);
@@ -195,11 +201,9 @@ public final class QueueService {
 
 
     /**
-     * 执行 next 操作。
-     * @param botId 参数 botId
-     * @param playlistId 参数 playlistId
-     * @return 返回值
-     */
+     * 鎵ц next 鎿嶄綔銆?     * @param botId 鍙傛暟 botId
+     * @param playlistId 鍙傛暟 playlistId
+     * @return 杩斿洖鍊?     */
     public QueueItem next(String botId, String playlistId) {
         synchronized (stateLock) {
             List<QueueItem> queue = resolveQueue(botId, playlistId);
@@ -220,12 +224,10 @@ public final class QueueService {
 
 
     /**
-     * 执行 nextRandom 操作。
-     * @param botId 参数 botId
-     * @param playlistId 参数 playlistId
-     * @param random 参数 random
-     * @return 返回值
-     */
+     * 鎵ц nextRandom 鎿嶄綔銆?     * @param botId 鍙傛暟 botId
+     * @param playlistId 鍙傛暟 playlistId
+     * @param random 鍙傛暟 random
+     * @return 杩斿洖鍊?     */
     public QueueItem nextRandom(String botId, String playlistId, Random random) {
         if (random == null) {
             random = new Random();
@@ -245,11 +247,9 @@ public final class QueueService {
 
 
     /**
-     * 执行 nextLoop 操作。
-     * @param botId 参数 botId
-     * @param playlistId 参数 playlistId
-     * @return 返回值
-     */
+     * 鎵ц nextLoop 鎿嶄綔銆?     * @param botId 鍙傛暟 botId
+     * @param playlistId 鍙傛暟 playlistId
+     * @return 杩斿洖鍊?     */
     public QueueItem nextLoop(String botId, String playlistId) {
         synchronized (stateLock) {
             List<QueueItem> queue = resolveQueue(botId, playlistId);
@@ -269,11 +269,9 @@ public final class QueueService {
 
 
     /**
-     * 执行 nextListLoop 操作。
-     * @param botId 参数 botId
-     * @param playlistId 参数 playlistId
-     * @return 返回值
-     */
+     * 鎵ц nextListLoop 鎿嶄綔銆?     * @param botId 鍙傛暟 botId
+     * @param playlistId 鍙傛暟 playlistId
+     * @return 杩斿洖鍊?     */
     public QueueItem nextListLoop(String botId, String playlistId) {
         synchronized (stateLock) {
             List<QueueItem> queue = resolveQueue(botId, playlistId);
@@ -294,9 +292,8 @@ public final class QueueService {
 
 
     /**
-     * 执行 clear 操作。
-     * @param botId 参数 botId
-     * @param playlistId 参数 playlistId
+     * 鎵ц clear 鎿嶄綔銆?     * @param botId 鍙傛暟 botId
+     * @param playlistId 鍙傛暟 playlistId
      */
     public void clear(String botId, String playlistId) {
         synchronized (stateLock) {
@@ -308,10 +305,8 @@ public final class QueueService {
 
 
     /**
-     * 执行 listPlaylists 操作。
-     * @param botId 参数 botId
-     * @return 返回值
-     */
+     * 鎵ц listPlaylists 鎿嶄綔銆?     * @param botId 鍙傛暟 botId
+     * @return 杩斿洖鍊?     */
     public List<String> listPlaylists(String botId) {
 
         Map<String, List<QueueItem>> playlists = resolvePlaylists(botId);
@@ -322,10 +317,8 @@ public final class QueueService {
 
 
     /**
-     * 执行 getActivePlaylist 操作。
-     * @param botId 参数 botId
-     * @return 返回值
-     */
+     * 鎵ц getActivePlaylist 鎿嶄綔銆?     * @param botId 鍙傛暟 botId
+     * @return 杩斿洖鍊?     */
     public String getActivePlaylist(String botId) {
         String current = activePlaylists.get(botId);
         if (current == null || current.isBlank()) {
@@ -341,9 +334,8 @@ public final class QueueService {
 
 
     /**
-     * 执行 setActivePlaylist 操作。
-     * @param botId 参数 botId
-     * @param playlistId 参数 playlistId
+     * 鎵ц setActivePlaylist 鎿嶄綔銆?     * @param botId 鍙傛暟 botId
+     * @param playlistId 鍙傛暟 playlistId
      */
     public void setActivePlaylist(String botId, String playlistId) {
         String resolved = normalizePlaylistId(playlistId);
@@ -356,11 +348,9 @@ public final class QueueService {
 
 
     /**
-     * 执行 createPlaylist 操作。
-     * @param botId 参数 botId
-     * @param playlistId 参数 playlistId
-     * @return 返回值
-     */
+     * 鎵ц createPlaylist 鎿嶄綔銆?     * @param botId 鍙傛暟 botId
+     * @param playlistId 鍙傛暟 playlistId
+     * @return 杩斿洖鍊?     */
     public boolean createPlaylist(String botId, String playlistId) {
         String resolved = normalizePlaylistId(playlistId);
         synchronized (stateLock) {
@@ -377,11 +367,9 @@ public final class QueueService {
 
 
     /**
-     * 执行 removePlaylist 操作。
-     * @param botId 参数 botId
-     * @param playlistId 参数 playlistId
-     * @return 返回值
-     */
+     * 鎵ц removePlaylist 鎿嶄綔銆?     * @param botId 鍙傛暟 botId
+     * @param playlistId 鍙傛暟 playlistId
+     * @return 杩斿洖鍊?     */
     public boolean removePlaylist(String botId, String playlistId) {
         String resolved = normalizePlaylistId(playlistId);
         if (DEFAULT_PLAYLIST_ID.equalsIgnoreCase(resolved)) {
@@ -407,12 +395,10 @@ public final class QueueService {
 
 
     /**
-     * 执行 renamePlaylist 操作。
-     * @param botId 参数 botId
-     * @param playlistId 参数 playlistId
-     * @param newPlaylistId 参数 newPlaylistId
-     * @return 返回值
-     */
+     * 鎵ц renamePlaylist 鎿嶄綔銆?     * @param botId 鍙傛暟 botId
+     * @param playlistId 鍙傛暟 playlistId
+     * @param newPlaylistId 鍙傛暟 newPlaylistId
+     * @return 杩斿洖鍊?     */
     public boolean renamePlaylist(String botId, String playlistId, String newPlaylistId) {
         String from = normalizePlaylistId(playlistId);
         String to = normalizePlaylistId(newPlaylistId);
@@ -459,12 +445,10 @@ public final class QueueService {
 
 
     /**
-     * 执行 jumpTo 操作。
-     * @param botId 参数 botId
-     * @param playlistId 参数 playlistId
-     * @param itemId 参数 itemId
-     * @return 返回值
-     */
+     * 鎵ц jumpTo 鎿嶄綔銆?     * @param botId 鍙傛暟 botId
+     * @param playlistId 鍙傛暟 playlistId
+     * @param itemId 鍙傛暟 itemId
+     * @return 杩斿洖鍊?     */
     public boolean jumpTo(String botId, String playlistId, String itemId) {
         if (botId == null || itemId == null || itemId.isBlank()) {
             return false;
@@ -485,12 +469,10 @@ public final class QueueService {
 
 
     /**
-     * 执行 removeItem 操作。
-     * @param botId 参数 botId
-     * @param playlistId 参数 playlistId
-     * @param itemId 参数 itemId
-     * @return 返回值
-     */
+     * 鎵ц removeItem 鎿嶄綔銆?     * @param botId 鍙傛暟 botId
+     * @param playlistId 鍙傛暟 playlistId
+     * @param itemId 鍙傛暟 itemId
+     * @return 杩斿洖鍊?     */
     public boolean removeItem(String botId, String playlistId, String itemId) {
         if (botId == null || itemId == null || itemId.isBlank()) {
             return false;
@@ -516,11 +498,74 @@ public final class QueueService {
 
 
     /**
-     * 执行 hasPlaylist 操作。
-     * @param botId 参数 botId
-     * @param playlistId 参数 playlistId
-     * @return 返回值
-     */
+     * 鎵ц updateTrack 鎿嶄綔銆?     * @param botId 鍙傛暟 botId
+     * @param playlistId 鍙傛暟 playlistId
+     * @param itemId 鍙傛暟 itemId
+     * @param track 鍙傛暟 track
+     * @return 杩斿洖鍊?     */
+    public boolean updateTrack(String botId, String playlistId, String itemId, Track track) {
+        if (botId == null || itemId == null || itemId.isBlank() || track == null) {
+            return false;
+        }
+        String resolved = normalizePlaylistId(playlistId);
+        synchronized (stateLock) {
+            List<QueueItem> queue = resolveQueue(botId, resolved);
+            int index = findIndex(queue, itemId);
+            if (index < 0) {
+                return false;
+            }
+            QueueItem existing = queue.get(index);
+            queue.set(index, new QueueItem(
+                existing.id(),
+                existing.botId(),
+                existing.playlistId(),
+                track,
+                existing.addedAt(),
+                existing.addedBy()
+            ));
+            persistSnapshot();
+            return true;
+        }
+    }
+
+    public QueueItem refreshItem(String botId, String playlistId, String itemId) {
+        if (botId == null || itemId == null || itemId.isBlank()) {
+            return null;
+        }
+        String resolved = normalizePlaylistId(playlistId);
+        synchronized (stateLock) {
+            List<QueueItem> queue = resolveQueue(botId, resolved);
+            int index = findIndex(queue, itemId);
+            if (index < 0) {
+                return null;
+            }
+            QueueItem item = queue.get(index);
+            if (item == null || item.track() == null) {
+                return item;
+            }
+            Track repaired = repairTrack(item.track());
+            if (repaired.equals(item.track())) {
+                return item;
+            }
+            QueueItem updated = new QueueItem(
+                item.id(),
+                item.botId(),
+                item.playlistId(),
+                repaired,
+                item.addedAt(),
+                item.addedBy()
+            );
+            queue.set(index, updated);
+            persistSnapshot();
+            return updated;
+        }
+    }
+
+
+    /**
+     * 鎵ц hasPlaylist 鎿嶄綔銆?     * @param botId 鍙傛暟 botId
+     * @param playlistId 鍙傛暟 playlistId
+     * @return 杩斿洖鍊?     */
     public boolean hasPlaylist(String botId, String playlistId) {
         String resolved = normalizePlaylistId(playlistId);
         return resolvePlaylists(botId).containsKey(resolved);
@@ -528,18 +573,15 @@ public final class QueueService {
 
 
     /**
-     * 执行 listStoredBotIds 操作。
-     * @return 返回值
-     */
+     * 鎵ц listStoredBotIds 鎿嶄綔銆?     * @return 杩斿洖鍊?     */
     public List<String> listStoredBotIds() {
         return new ArrayList<>(queues.keySet());
     }
 
 
     /**
-     * 执行 renameBotId 操作。
-     * @param fromBotId 参数 fromBotId
-     * @param toBotId 参数 toBotId
+     * 鎵ц renameBotId 鎿嶄綔銆?     * @param fromBotId 鍙傛暟 fromBotId
+     * @param toBotId 鍙傛暟 toBotId
      */
     public void renameBotId(String fromBotId, String toBotId) {
         if (fromBotId == null || toBotId == null) {
@@ -569,6 +611,15 @@ public final class QueueService {
         Map<String, List<QueueItem>> playlists = queues.computeIfAbsent(botId, key -> new ConcurrentHashMap<>());
         playlists.computeIfAbsent(DEFAULT_PLAYLIST_ID, key -> Collections.synchronizedList(new ArrayList<>()));
         return playlists;
+    }
+
+    private static List<TrackResolver> initRepairResolvers(ConfigService configService) {
+        try {
+            return new ResolverRegistry(configService).list();
+        } catch (Exception ex) {
+            log.warn("Failed to initialize queue repair resolvers", ex);
+            return List.of();
+        }
     }
 
     private List<QueueItem> resolveQueue(String botId, String playlistId) {
@@ -607,6 +658,191 @@ public final class QueueService {
             }
         }
         return -1;
+    }
+
+    private boolean repairQueueItems(String botId, String playlistId, List<QueueItem> queue) {
+        boolean changed = false;
+        for (int i = 0; i < queue.size(); i++) {
+            QueueItem item = queue.get(i);
+            if (item == null || item.track() == null) {
+                continue;
+            }
+            Track repaired = repairTrack(item.track());
+            if (repaired == null || repaired.equals(item.track())) {
+                continue;
+            }
+            queue.set(i, new QueueItem(
+                item.id(),
+                botId,
+                playlistId,
+                repaired,
+                item.addedAt(),
+                item.addedBy()
+            ));
+            changed = true;
+        }
+        return changed;
+    }
+
+    private Track repairTrack(Track track) {
+        if (!needsRepair(track)) {
+            return track;
+        }
+        for (TrackResolver resolver : prioritizedResolvers(track)) {
+            Optional<Track> resolved = resolveQuietly(resolver, track.sourceId());
+            if (resolved.isEmpty()) {
+                continue;
+            }
+            Track merged = mergeTrack(track, resolved.get());
+            if (!merged.equals(track)) {
+                return merged;
+            }
+        }
+        return track;
+    }
+
+    private List<TrackResolver> prioritizedResolvers(Track track) {
+        if (repairResolvers.isEmpty()) {
+            return List.of();
+        }
+        String canonicalSourceType = canonicalSourceType(track == null ? null : track.sourceType(), track == null ? null : track.sourceId());
+        if (canonicalSourceType.isBlank()) {
+            return List.of();
+        }
+        List<TrackResolver> prioritized = new ArrayList<>(1);
+        for (TrackResolver resolver : repairResolvers) {
+            if (resolver != null && equalsIgnoreCase(resolver.sourceType(), canonicalSourceType)) {
+                prioritized.add(resolver);
+            }
+        }
+        return prioritized;
+    }
+
+    private Optional<Track> resolveQuietly(TrackResolver resolver, String sourceId) {
+        try {
+            return resolver == null ? Optional.empty() : resolver.resolve(sourceId);
+        } catch (Exception ex) {
+            log.warn("Failed to repair queue track from sourceId={} via resolver={}", sourceId, resolver == null ? "" : resolver.sourceType(), ex);
+            return Optional.empty();
+        }
+    }
+
+    private Track mergeTrack(Track existing, Track resolved) {
+        String sourceId = firstNonBlank(existing.sourceId(), resolved.sourceId());
+        // Future resolver-supported fields should be merged here so lazy list loading
+        // can continue repairing incomplete persisted items without adding a new flow.
+        return new Track(
+            firstNonBlank(existing.id(), resolved.id()),
+            chooseTitle(existing.title(), sourceId, resolved.title()),
+            firstNonBlank(existing.sourceType(), resolved.sourceType()),
+            sourceId,
+            firstNonBlank(existing.streamUrl(), resolved.streamUrl()),
+            existing.durationMs() > 0 ? existing.durationMs() : Math.max(0, resolved.durationMs()),
+            firstNonBlank(existing.coverUrl(), resolved.coverUrl()),
+            firstNonBlank(existing.artist(), resolved.artist()),
+            choosePlayCount(existing.playCount(), resolved.playCount())
+        );
+    }
+
+    private boolean needsRepair(Track track) {
+        if (track == null || !isHttpUrl(track.sourceId())) {
+            return false;
+        }
+        return titleNeedsRepair(track.title(), track.sourceId())
+            || isBlank(track.sourceType())
+            || isBlank(track.streamUrl())
+            || track.durationMs() <= 0
+            || isBlank(track.coverUrl());
+    }
+
+    private boolean titleNeedsRepair(String title, String sourceId) {
+        return isBlank(title) || equalsIgnoreCase(title, sourceId) || isHttpUrl(title);
+    }
+
+    private boolean isHttpUrl(String value) {
+        if (value == null) {
+            return false;
+        }
+        String lower = value.trim().toLowerCase();
+        return lower.startsWith("http://") || lower.startsWith("https://");
+    }
+
+    private String canonicalSourceType(String sourceType, String sourceId) {
+        String normalized = normalizeSourceAlias(sourceType);
+        if (!normalized.isBlank()) {
+            return normalized;
+        }
+        if (isBlank(sourceId)) {
+            return "";
+        }
+        String lower = sourceId.trim().toLowerCase();
+        if (lower.contains("music.youtube.com")) {
+            return "ytmusic";
+        }
+        if (lower.contains("youtube.com") || lower.contains("youtu.be")) {
+            return "yt";
+        }
+        if (lower.contains("music.163.com") || lower.contains("163.com")) {
+            return "netease";
+        }
+        if (lower.contains("y.qq.com") || lower.contains("qq.com")) {
+            return "qq";
+        }
+        return "";
+    }
+
+    private String normalizeSourceAlias(String sourceType) {
+        if (isBlank(sourceType)) {
+            return "";
+        }
+        String lower = sourceType.trim().toLowerCase();
+        return switch (lower) {
+            case "yt", "youtube" -> "yt";
+            case "ytmusic", "youtube music" -> "ytmusic";
+            case "netease", "netease music", "网易云音乐" -> "netease";
+            case "qq", "qqmusic", "qq music", "qq音乐" -> "qq";
+            default -> "";
+        };
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private String chooseTitle(String currentTitle, String sourceId, String resolvedTitle) {
+        if (!titleNeedsRepair(currentTitle, sourceId)) {
+            return currentTitle;
+        }
+        return firstNonBlank(resolvedTitle, currentTitle, sourceId);
+    }
+
+    private Long choosePlayCount(Long currentPlayCount, Long resolvedPlayCount) {
+        if (currentPlayCount != null && currentPlayCount > 0L) {
+            return currentPlayCount;
+        }
+        if (resolvedPlayCount != null && resolvedPlayCount > 0L) {
+            return resolvedPlayCount;
+        }
+        return null;
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) {
+            return "";
+        }
+        for (String value : values) {
+            if (!isBlank(value)) {
+                return value;
+            }
+        }
+        return "";
+    }
+
+    private boolean equalsIgnoreCase(String left, String right) {
+        if (left == null || right == null) {
+            return false;
+        }
+        return left.equalsIgnoreCase(right);
     }
 
     private void loadSnapshot() {

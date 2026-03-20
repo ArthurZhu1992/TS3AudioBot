@@ -106,7 +106,7 @@ public abstract class YtDlpSearchProvider implements SearchProvider {
                     String uploader = text(entry, "uploader");
                     String channel = text(entry, "channel");
                     String artist = !uploader.isBlank() ? uploader : channel;
-                    String thumbnail = text(entry, "thumbnail");
+                    String thumbnail = extractThumbnail(entry);
                     long durationMs = entry.path("duration").asLong(0) * 1000L;
                     Long playCount = entry.has("view_count") ? entry.path("view_count").asLong() : null;
                     String pageUrl = buildPageUrl(id);
@@ -241,4 +241,51 @@ public abstract class YtDlpSearchProvider implements SearchProvider {
         JsonNode value = node.get(field);
         return value == null ? "" : value.asText("");
     }
+
+    protected String extractThumbnail(JsonNode entry) {
+        if (entry == null || entry.isNull()) {
+            return "";
+        }
+        String direct = normalizeThumbnailUrl(text(entry, "thumbnail"));
+        if (!direct.isBlank()) {
+            return direct;
+        }
+        JsonNode thumbnailNode = entry.get("thumbnail");
+        if (thumbnailNode != null && thumbnailNode.isObject()) {
+            String objectUrl = normalizeThumbnailUrl(thumbnailNode.path("url").asText(""));
+            if (!objectUrl.isBlank()) {
+                return objectUrl;
+            }
+        }
+        JsonNode thumbnails = entry.get("thumbnails");
+        if (thumbnails == null || thumbnails.isMissingNode()) {
+            thumbnails = thumbnailNode;
+        }
+        if (thumbnails != null && thumbnails.isArray()) {
+            String best = "";
+            for (JsonNode thumbnail : thumbnails) {
+                String url = normalizeThumbnailUrl(thumbnail.path("url").asText(""));
+                if (!url.isBlank()) {
+                    best = url;
+                }
+            }
+            return best;
+        }
+        return "";
+    }
+
+    protected String normalizeThumbnailUrl(String url) {
+        if (url == null) {
+            return "";
+        }
+        String trimmed = url.trim();
+        if (trimmed.isEmpty()) {
+            return "";
+        }
+        if (trimmed.startsWith("//")) {
+            return "https:" + trimmed;
+        }
+        return trimmed;
+    }
 }
+

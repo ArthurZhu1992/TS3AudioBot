@@ -44,7 +44,11 @@ public final class UiController {
      * @param queueService 参数 queueService
      * @param configService 参数 configService
      */
-    public UiController(BotManager botManager, QueueService queueService, ConfigService configService) {
+    public UiController(
+        BotManager botManager,
+        QueueService queueService,
+        ConfigService configService
+    ) {
         this.botManager = botManager;
         this.queueService = queueService;
         this.configService = configService;
@@ -121,7 +125,7 @@ public final class UiController {
             selected = activePlaylist;
         }
 
-        model.addAttribute("queue", queueService.list(botId, selected));
+        model.addAttribute("queue", queueService.rawList(botId, selected));
         model.addAttribute("playlists", queueService.listPlaylists(botId));
         model.addAttribute("playlistId", selected);
         int currentIndex = Math.max(-1, queueService.getPosition(botId, selected) - 1);
@@ -162,7 +166,7 @@ public final class UiController {
         if (!queueService.hasPlaylist(botId, selected)) {
             selected = activePlaylist;
         }
-        model.addAttribute("queue", queueService.list(botId, selected));
+        model.addAttribute("queue", queueService.rawList(botId, selected));
         int currentIndex = Math.max(-1, queueService.getPosition(botId, selected) - 1);
         model.addAttribute("currentIndex", currentIndex);
         model.addAttribute("playlists", queueService.listPlaylists(botId));

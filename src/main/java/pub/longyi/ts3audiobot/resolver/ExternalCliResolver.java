@@ -5,6 +5,7 @@ import pub.longyi.ts3audiobot.queue.Track;
 import pub.longyi.ts3audiobot.util.IdGenerator;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -84,7 +85,10 @@ public final class ExternalCliResolver implements TrackResolver {
             sourceType,
             query,
             streamUrl,
-            duration
+            duration,
+            parsed.coverUrl,
+            "",
+            null
         );
         return Optional.of(track);
     }
@@ -112,6 +116,7 @@ public final class ExternalCliResolver implements TrackResolver {
             args.add("--get-url");
             args.add("--get-title");
             args.add("--get-duration");
+            args.add("--get-thumbnail");
             args.add("-f");
             args.add("bestaudio");
             args.add(query);
@@ -135,25 +140,19 @@ public final class ExternalCliResolver implements TrackResolver {
                 if (trimmed.startsWith("WARNING:") || trimmed.startsWith("ERROR:")) {
                     continue;
                 }
-                if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
-                    continue;
-                }
-                if (trimmed.startsWith("[")) {
-                    continue;
-                }
                 cleaned.add(trimmed);
             }
             if (cleaned.isEmpty()) {
-                return new ParsedOutput("", fallbackTitle, 0);
+                return new ParsedOutput("", fallbackTitle, 0, "");
             }
             UrlPick picked = pickStreamUrl(cleaned, fallbackTitle);
-            return new ParsedOutput(picked.streamUrl, picked.title, picked.duration);
+            return new ParsedOutput(picked.streamUrl, picked.title, picked.duration, picked.coverUrl);
         }
 
         String streamUrl = output.get(0).trim();
         String title = output.size() > 1 ? output.get(1).trim() : fallbackTitle;
         long duration = output.size() > 2 ? parseDurationSeconds(output.get(2).trim()) : 0;
-        return new ParsedOutput(streamUrl, title, duration);
+        return new ParsedOutput(streamUrl, title, duration, "");
     }
 
     private UrlPick pickStreamUrl(List<String> cleaned, String fallbackTitle) {
@@ -166,7 +165,7 @@ public final class ExternalCliResolver implements TrackResolver {
         if (urls.isEmpty()) {
             String title = cleaned.get(0);
             long duration = cleaned.size() > 1 ? parseDurationSeconds(cleaned.get(1)) : 0;
-            return new UrlPick("", title, duration);
+            return new UrlPick("", title, duration, "");
         }
         String preferred = selectPreferredUrl(urls, fallbackTitle);
         if (preferred == null || preferred.isBlank()) {
@@ -175,6 +174,7 @@ public final class ExternalCliResolver implements TrackResolver {
         int idx = cleaned.indexOf(preferred);
         String title = fallbackTitle;
         long duration = 0;
+        String coverUrl = "";
         if (idx >= 0) {
             String before = idx - 1 >= 0 ? cleaned.get(idx - 1) : null;
             String after = idx + 1 < cleaned.size() ? cleaned.get(idx + 1) : null;
@@ -190,8 +190,9 @@ public final class ExternalCliResolver implements TrackResolver {
             if (title.equals(fallbackTitle) && after != null && !isLikelyDuration(after) && !isUrl(after)) {
                 title = after;
             }
+            coverUrl = findCoverUrl(cleaned, idx);
         }
-        return new UrlPick(preferred, title, duration);
+        return new UrlPick(preferred, title, duration, coverUrl);
     }
 
     private String selectPreferredUrl(List<String> urls, String fallbackTitle) {
@@ -228,7 +229,54 @@ public final class ExternalCliResolver implements TrackResolver {
         if (value == null) {
             return false;
         }
-        return value.startsWith("http://") || value.startsWith("https://");
+        String normalized = normalizeCoverUrl(value);
+        return normalized.startsWith("http://") || normalized.startsWith("https://");
+    }
+
+    private String findCoverUrl(List<String> cleaned, int streamIndex) {
+        int[] preferredOffsets = {1, 2, 3, -1, -2};
+        for (int offset : preferredOffsets) {
+            int candidateIndex = streamIndex + offset;
+            if (candidateIndex < 0 || candidateIndex >= cleaned.size()) {
+                continue;
+            }
+            String candidate = cleaned.get(candidateIndex);
+            if (isCoverCandidate(candidate)) {
+                return normalizeCoverUrl(candidate);
+            }
+        }
+        for (String line : cleaned) {
+            if (isCoverCandidate(line)) {
+                return normalizeCoverUrl(line);
+            }
+        }
+        return "";
+    }
+
+    private boolean isCoverCandidate(String value) {
+        if (value == null) {
+            return false;
+        }
+        String normalized = normalizeCoverUrl(value);
+        if (!isUrl(normalized) || isLikelyStreamUrl(normalized)) {
+            return false;
+        }
+        String lower = normalized.toLowerCase();
+        return lower.contains("ytimg.com")
+            || lower.contains("ggpht.com")
+            || lower.contains("/vi/")
+            || lower.matches("^https?://.+\\.(jpg|jpeg|png|webp)(\\?.*)?$");
+    }
+
+    private String normalizeCoverUrl(String value) {
+        if (value == null) {
+            return "";
+        }
+        String trimmed = value.trim();
+        if (trimmed.startsWith("//")) {
+            return "https:" + trimmed;
+        }
+        return trimmed;
     }
 
     private boolean isLikelyDuration(String value) {
@@ -270,6 +318,9 @@ public final class ExternalCliResolver implements TrackResolver {
             if (process.exitValue() != 0) {
                 log.warn("[Resolver:{}] command exit {}", sourceType, process.exitValue());
             }
+        } catch (IOException ex) {
+            log.warn("[Resolver:{}] command unavailable: {}", sourceType, ex.getMessage());
+            return List.of();
         } catch (Exception ex) {
             log.warn("[Resolver:{}] command failed", sourceType, ex);
             return List.of();
@@ -296,9 +347,9 @@ public final class ExternalCliResolver implements TrackResolver {
         }
     }
 
-    private record ParsedOutput(String streamUrl, String title, long duration) {
+    private record ParsedOutput(String streamUrl, String title, long duration, String coverUrl) {
     }
 
-    private record UrlPick(String streamUrl, String title, long duration) {
+    private record UrlPick(String streamUrl, String title, long duration, String coverUrl) {
     }
 }

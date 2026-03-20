@@ -207,7 +207,10 @@ public final class InternalBotController {
             bot.playbackDurationMs(),
             bot.volumePercent(),
             track == null ? "" : track.title(),
+            track == null ? "" : track.artist(),
             track == null ? "" : track.sourceType(),
+            track == null ? "" : track.coverUrl(),
+            track == null ? null : track.playCount(),
             currentPlaylist == null ? "" : currentPlaylist,
             currentItemId == null ? "" : currentItemId
         ));
@@ -289,6 +292,7 @@ public final class InternalBotController {
      * @param durationMs 参数 durationMs
      * @param volumePercent 参数 volumePercent
      * @param title 参数 title
+     * @param artist 参数 artist
      * @param sourceType 参数 sourceType
      * @return 返回值
      */
@@ -300,7 +304,10 @@ public final class InternalBotController {
         long durationMs,
         int volumePercent,
         String title,
+        String artist,
         String sourceType,
+        String coverUrl,
+        Long playCount,
         String playlistId,
         String itemId
     ) {
