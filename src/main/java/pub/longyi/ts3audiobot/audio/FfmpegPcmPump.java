@@ -34,6 +34,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 @Slf4j
 public final class FfmpegPcmPump {
+    private static final long STOP_TIMEOUT_MS = 2000L;
     private static final int PIPE_BUFFER_SIZE = 16 * 1024;
     private static final String PIPE_INPUT = "pipe:0";
     private static final String PIPE_OUTPUT = "pipe:1";
@@ -165,14 +166,10 @@ public final class FfmpegPcmPump {
      */
     public synchronized void stop() {
         running.set(false);
-        if (inputProcess != null) {
-            inputProcess.destroy();
-            inputProcess = null;
-        }
-        if (process != null) {
-            process.destroy();
-            process = null;
-        }
+        Process source = inputProcess;
+        inputProcess = null;
+        Process ffmpeg = process;
+        process = null;
         if (readerThread != null) {
             readerThread.interrupt();
             readerThread = null;
@@ -189,6 +186,8 @@ public final class FfmpegPcmPump {
             pipeThread.interrupt();
             pipeThread = null;
         }
+        stopProcess(source, LABEL_INPUT);
+        stopProcess(ffmpeg, LABEL_FFMPEG);
     }
 
 
@@ -313,6 +312,23 @@ public final class FfmpegPcmPump {
     private void safeDestroy(Process proc) {
         if (proc != null) {
             proc.destroy();
+        }
+    }
+
+    private void stopProcess(Process proc, String label) {
+        if (proc == null) {
+            return;
+        }
+        safeDestroy(proc);
+        try {
+            if (proc.waitFor(STOP_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                return;
+            }
+            log.warn("[{}] process did not exit in {}ms, forcing stop", label, STOP_TIMEOUT_MS);
+            proc.destroyForcibly();
+            proc.waitFor(STOP_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
         }
     }
 

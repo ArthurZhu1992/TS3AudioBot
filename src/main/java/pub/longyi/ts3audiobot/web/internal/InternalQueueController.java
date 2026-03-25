@@ -1,7 +1,10 @@
 package pub.longyi.ts3audiobot.web.internal;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import pub.longyi.ts3audiobot.bot.BotInstance;
+import pub.longyi.ts3audiobot.bot.BotManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import pub.longyi.ts3audiobot.media.TrackMediaService;
@@ -40,6 +43,7 @@ public final class InternalQueueController {
     private final QueueService queueService;
     private final ResolverRegistry resolverRegistry;
     private final TrackMediaService trackMediaService;
+    private final BotManager botManager;
 
     /**
      * 创建 InternalQueueController 实例。
@@ -51,9 +55,20 @@ public final class InternalQueueController {
         ResolverRegistry resolverRegistry,
         TrackMediaService trackMediaService
     ) {
+        this(queueService, resolverRegistry, trackMediaService, null);
+    }
+
+    @Autowired
+    public InternalQueueController(
+        QueueService queueService,
+        ResolverRegistry resolverRegistry,
+        TrackMediaService trackMediaService,
+        BotManager botManager
+    ) {
         this.queueService = queueService;
         this.resolverRegistry = resolverRegistry;
         this.trackMediaService = trackMediaService;
+        this.botManager = botManager;
     }
 
 
@@ -193,6 +208,7 @@ public final class InternalQueueController {
         if (!removed) {
             return ResponseEntity.badRequest().body("Queue item delete failed");
         }
+        releaseCurrentPlayback(botId, playlistId, itemId);
         trackMediaService.deleteTrackMedia(targetTrack);
         return ResponseEntity.ok().build();
 
@@ -536,6 +552,17 @@ public final class InternalQueueController {
                 trackMediaService.deleteTrackMedia(item.track());
             }
         }
+    }
+
+    private void releaseCurrentPlayback(String botId, String playlistId, String itemId) {
+        if (botManager == null) {
+            return;
+        }
+        BotInstance bot = botManager.get(botId);
+        if (bot == null) {
+            return;
+        }
+        bot.handleRemovedQueueItem(playlistId, itemId);
     }
 
 

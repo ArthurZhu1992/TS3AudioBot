@@ -14,6 +14,7 @@ import pub.longyi.ts3audiobot.ts3.full.TsCrypt;
 import pub.longyi.ts3audiobot.ts3.full.TsVersionSigned;
 import pub.longyi.ts3audiobot.ts3.full.IdentityData;
 
+import java.util.Objects;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
@@ -328,7 +329,7 @@ public final class BotInstance {
      * 执行 playNext 操作。
      */
     public void playNext() {
-        playNext(false);
+        playNext(queueService.getActivePlaylist(id), false);
     }
 
 
@@ -336,25 +337,45 @@ public final class BotInstance {
      * 执行 playNextForced 操作。
      */
     public void playNextForced() {
-        playNext(true);
+        playNext(queueService.getActivePlaylist(id), true);
     }
 
-    private void playNext(boolean forceOrder) {
-        String playlistId = queueService.getActivePlaylist(id);
+    public synchronized boolean handleRemovedQueueItem(String playlistId, String itemId) {
+        if (!Objects.equals(currentItemId, itemId) || !Objects.equals(currentPlaylistId, playlistId)) {
+            return false;
+        }
+        boolean shouldContinue = status == BotStatus.RUNNING && !playbackPaused;
+        audioEngine.stop();
+        playbackPositionMs = 0L;
+        playbackStartedAt = 0L;
+        currentTrack = null;
+        currentItemId = null;
+        currentPlaylistId = null;
+        if (shouldContinue) {
+            playNext(playlistId, true);
+        }
+        return true;
+    }
+
+    private void playNext(String playlistId, boolean forceOrder) {
+        String resolvedPlaylistId = playlistId;
+        if (resolvedPlaylistId == null || resolvedPlaylistId.isBlank()) {
+            resolvedPlaylistId = queueService.getActivePlaylist(id);
+        }
         PlaybackMode mode = forceOrder ? PlaybackMode.ORDER : playbackMode;
         QueueItem resolved = switch (mode) {
-            case RANDOM -> queueService.nextRandom(id, playlistId, random);
-            case LOOP -> queueService.nextLoop(id, playlistId);
-            case LIST_LOOP -> queueService.nextListLoop(id, playlistId);
-            default -> queueService.next(id, playlistId);
+            case RANDOM -> queueService.nextRandom(id, resolvedPlaylistId, random);
+            case LOOP -> queueService.nextLoop(id, resolvedPlaylistId);
+            case LIST_LOOP -> queueService.nextListLoop(id, resolvedPlaylistId);
+            default -> queueService.next(id, resolvedPlaylistId);
         };
         if (resolved == null) {
             return;
         }
         playbackPaused = false;
         currentItemId = resolved.id();
-        currentPlaylistId = playlistId;
-        currentTrack = prepareTrackForPlayback(playlistId, resolved.id(), resolved.track());
+        currentPlaylistId = resolvedPlaylistId;
+        currentTrack = prepareTrackForPlayback(resolvedPlaylistId, resolved.id(), resolved.track());
         playbackPositionMs = 0L;
         playbackStartedAt = System.currentTimeMillis();
         audioEngine.play(currentTrack);
