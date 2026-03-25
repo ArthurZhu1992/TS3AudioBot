@@ -702,11 +702,11 @@
                                 <div class="queue-main">
                                     <div class="song-title" th:text="${item.track().title()}">Title</div>
                                     <div class="song-artist"
-                                         th:text="${(item.track().artist() != null and !#strings.isEmpty(item.track().artist()) ? item.track().artist() : item.track().sourceType()) + (item.track().durationMs() > 0 ? ' · ' + (item.track().durationMs() / 1000) + 's' : '') + (item.track().playCount() != null ? ' · ' + item.track().playCount() + '次播放' : '')}">source</div>
+                                         th:text="${item.track().artist() != null and !#strings.isEmpty(item.track().artist()) ? item.track().artist() : item.track().sourceType()}">source</div>
                                     <div class="song-meta-secondary"
-                                         th:text="${(item.track().sourceType() != null and !#strings.isEmpty(item.track().sourceType())) ? item.track().sourceType() : ''}"></div>
+                                         th:text="${(item.track().durationMs() > 0 ? (item.track().durationMs() / 1000) + 's' : '') + (item.track().playCount() != null ? ' · ' + item.track().playCount() + '次播放' : '')}"></div>
                                     <div class="song-meta-reference"
-                                         th:text="${item.addedBy() != null and !#strings.isEmpty(item.addedBy()) ? '添加者: ' + item.addedBy() : ''}"></div>
+                                         th:text="${(item.track().sourceType() != null and !#strings.isEmpty(item.track().sourceType()) ? item.track().sourceType() : '') + (item.addedBy() != null and !#strings.isEmpty(item.addedBy()) ? ' · 添加者: ' + item.addedBy() : '')}"></div>
                                 </div>
                                 <button class="btn btn-danger btn-sm action-delete" type="button" title="Delete" data-bs-toggle="tooltip" data-bs-placement="top">
                                     <i class="fas fa-trash"></i>
@@ -1244,6 +1244,24 @@
         return parts.join(' · ');
     }
 
+    function buildTrackMetaLine(trackOrState) {
+        if (!trackOrState) {
+            return '';
+        }
+        const parts = [];
+        const artist = typeof trackOrState.artist === 'string' ? trackOrState.artist.trim() : '';
+        if (artist) {
+            parts.push(artist);
+        } else if (trackOrState.sourceType) {
+            parts.push(trackOrState.sourceType);
+        }
+        const stats = buildTrackStats(trackOrState.durationMs, trackOrState.playCount, '');
+        if (stats) {
+            parts.push(stats);
+        }
+        return parts.join(' · ');
+    }
+
     function escapeHtml(value) {
         return String(value == null ? '' : value)
             .replace(/&/g, '&amp;')
@@ -1321,15 +1339,14 @@
             ? `<img src="${escapeHtml(track.coverUrl)}" alt="cover" loading="lazy" referrerpolicy="no-referrer" />`
             : '<i class="fas fa-music"></i>';
         const title = escapeHtml(track.title || '未知歌曲');
-        const artist = escapeHtml(track.artist || track.sourceType || '');
-        const stats = escapeHtml(buildTrackStats(track.durationMs, track.playCount, track.sourceType));
+        const metaLine = escapeHtml(buildTrackMetaLine(track));
         const reference = escapeHtml(buildTrackReference(track, item.addedBy));
         return `
             <div class="queue-item" data-item-id="${escapeHtml(item.id)}">
                 <div class="queue-cover">${coverTag}</div>
                 <div class="queue-main">
                     <div class="song-title">${title}</div>
-                    <div class="song-artist">${artist}${stats ? ` · ${stats}` : ''}</div>
+                    <div class="song-artist">${metaLine}</div>
                     <div class="song-meta-secondary">${reference}</div>
                 </div>
                 <button class="btn btn-danger btn-sm action-delete" type="button" title="Delete" data-bs-toggle="tooltip" data-bs-placement="top">
@@ -1556,10 +1573,7 @@
     }
 
     function buildSearchRow(item, checked) {
-        const playCount = formatPlayCount(item.playCount);
-        const playCountText = playCount ? ` · ${playCount}次播放` : '';
-        const durationText = item.durationMs ? ` · ${formatDuration(item.durationMs)}` : '';
-        const sub = `${item.artist || ''}${durationText}${playCountText}`;
+        const sub = buildTrackMetaLine(item);
         const ref = buildTrackReference(item);
         const coverTag = item.coverUrl
             ? `<img class="search-cover" src="${item.coverUrl}" alt="cover" loading="lazy" referrerpolicy="no-referrer" />`
