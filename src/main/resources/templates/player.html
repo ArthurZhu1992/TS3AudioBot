@@ -792,6 +792,11 @@
     const STORAGE_KEY = 'ts3ab.selectedBotId';
     const PLAYLIST_KEY_PREFIX = 'ts3ab.playlist.';
     const SEARCH_SELECTED_KEY = 'ts3ab.search.selected';
+    const SEARCH_SOURCE_KEY_PREFIX = 'ts3ab.search.source.';
+    const SEARCH_VIEW_KEY_PREFIX = 'ts3ab.search.view.';
+    const SEARCH_QUERY_KEY_PREFIX = 'ts3ab.search.query.';
+    const SEARCH_CONTEXT_KEY_PREFIX = 'ts3ab.search.context.';
+    const SEARCH_PAGE_SIZE_KEY = 'ts3ab.search.pageSize';
     const SEARCH_PAGE_SIZE_DEFAULT = 30;
     const SEARCH_SOURCE_ORDER = ['yt', 'ytmusic', 'netease', 'qq'];
 
@@ -1191,6 +1196,92 @@
         sessionStorage.setItem(SEARCH_SELECTED_KEY, JSON.stringify(selectedItems));
     }
 
+    function getSearchScopedKey(prefix, botId = getBotId()) {
+        const scope = typeof botId === 'string' && botId.trim() ? botId.trim() : 'global';
+        return `${prefix}${scope}`;
+    }
+
+    function normalizeSearchPageSize(value) {
+        const allowed = $('#search-page-size option').map(function () {
+            return Number($(this).val()) || 0;
+        }).get().filter(Boolean);
+        const parsed = Number(value) || SEARCH_PAGE_SIZE_DEFAULT;
+        return allowed.includes(parsed) ? parsed : SEARCH_PAGE_SIZE_DEFAULT;
+    }
+
+    function loadSearchContext() {
+        const raw = sessionStorage.getItem(getSearchScopedKey(SEARCH_CONTEXT_KEY_PREFIX));
+        if (!raw) {
+            return {
+                page: 1,
+                playlistId: '',
+                playlistName: ''
+            };
+        }
+        try {
+            const parsed = JSON.parse(raw);
+            return {
+                page: Math.max(1, Number(parsed && parsed.page) || 1),
+                playlistId: typeof parsed?.playlistId === 'string' ? parsed.playlistId : '',
+                playlistName: typeof parsed?.playlistName === 'string' ? parsed.playlistName : ''
+            };
+        } catch (error) {
+            return {
+                page: 1,
+                playlistId: '',
+                playlistName: ''
+            };
+        }
+    }
+
+    function persistSearchContext() {
+        sessionStorage.setItem(getSearchScopedKey(SEARCH_CONTEXT_KEY_PREFIX), JSON.stringify({
+            page: Math.max(1, Number(searchPage) || 1),
+            playlistId: currentPlaylistId || '',
+            playlistName: currentPlaylistName || ''
+        }));
+    }
+
+    function persistSearchSource(source) {
+        if (!source) {
+            return;
+        }
+        localStorage.setItem(getSearchScopedKey(SEARCH_SOURCE_KEY_PREFIX), source);
+    }
+
+    function persistSearchView(view) {
+        if (!view) {
+            return;
+        }
+        localStorage.setItem(getSearchScopedKey(SEARCH_VIEW_KEY_PREFIX), view);
+    }
+
+    function persistSearchQuery(query) {
+        localStorage.setItem(getSearchScopedKey(SEARCH_QUERY_KEY_PREFIX), typeof query === 'string' ? query : '');
+    }
+
+    function persistSearchPageSize(pageSize) {
+        localStorage.setItem(SEARCH_PAGE_SIZE_KEY, String(normalizeSearchPageSize(pageSize)));
+    }
+
+    function loadSearchPreferences() {
+        const context = loadSearchContext();
+        const storedSource = localStorage.getItem(getSearchScopedKey(SEARCH_SOURCE_KEY_PREFIX)) || '';
+        const storedView = localStorage.getItem(getSearchScopedKey(SEARCH_VIEW_KEY_PREFIX)) || 'results';
+        const storedQuery = localStorage.getItem(getSearchScopedKey(SEARCH_QUERY_KEY_PREFIX)) || '';
+        let view = ['results', 'playlists', 'tracks'].includes(storedView) ? storedView : 'results';
+        if (view === 'tracks' && !context.playlistId) {
+            view = 'playlists';
+        }
+        return {
+            source: SEARCH_SOURCE_ORDER.includes(storedSource) ? storedSource : '',
+            view,
+            query: storedQuery,
+            pageSize: normalizeSearchPageSize(localStorage.getItem(SEARCH_PAGE_SIZE_KEY)),
+            context
+        };
+    }
+
     function updateSelectedCount() {
         const count = Object.keys(selectedItems).length;
         $selectedCount.text(count);
@@ -1523,6 +1614,7 @@
 
     function setSearchView(view) {
         searchView = view;
+        persistSearchView(view);
         $('#search-view-results').toggleClass('btn-success', view === 'results').toggleClass('btn-outline-light', view !== 'results');
         $('#search-view-playlists').toggleClass('btn-success', view !== 'results').toggleClass('btn-outline-light', view === 'results');
         $searchResults.toggleClass('d-none', view !== 'results');
@@ -1547,6 +1639,7 @@
         if (!source) return;
         stopDetailPolling();
         currentSource = source;
+        persistSearchSource(source);
         $searchTabs.find('.nav-link').removeClass('active');
         $searchTabs.find(`.nav-link[data-source="${source}"]`).addClass('active');
         updateSearchLoginPanel();
@@ -1556,13 +1649,15 @@
         } else {
             $('#search-view-playlists').prop('disabled', false).removeClass('disabled');
         }
-        if ((searchView === 'playlists' || searchView === 'tracks') && status && status.supportsPlaylists) {
-            loadPlaylists(1);
+        if (searchView === 'tracks' && status && status.supportsPlaylists && currentPlaylistId) {
+            loadPlaylistTracks(currentPlaylistId, searchPage || 1, currentPlaylistName);
+        } else if ((searchView === 'playlists' || searchView === 'tracks') && status && status.supportsPlaylists) {
+            loadPlaylists(searchPage || 1);
         } else if (searchView !== 'results' && status && !status.supportsPlaylists) {
             renderPlaceholder($searchPlaylists, '当前平台不支持歌单');
             setSearchView('playlists');
         } else if ($('#search-query').val().trim().length > 0) {
-            loadSearch(1);
+            loadSearch(searchPage || 1);
         } else {
             renderPlaceholder($searchResults, '请输入关键词开始搜索');
         }
@@ -1741,7 +1836,12 @@
     function loadSearch(page, openModal = false) {
         const botId = getBotId();
         const query = $('#search-query').val().trim();
+        persistSearchQuery(query);
         if (!query) {
+            searchPage = 1;
+            currentPlaylistId = '';
+            currentPlaylistName = '';
+            persistSearchContext();
             renderPlaceholder($searchResults, '请输入关键词开始搜索');
             if (openModal) {
                 setSearchView('results');
@@ -1751,7 +1851,10 @@
         }
         stopDetailPolling();
         searchPage = page;
+        currentPlaylistId = '';
+        currentPlaylistName = '';
         setSearchView('results');
+        persistSearchContext();
         renderPlaceholder($searchResults, '正在搜索...');
         if (openModal) {
             showSearchBrowser();
@@ -1778,7 +1881,9 @@
         stopDetailPolling();
         searchPage = page;
         currentPlaylistId = '';
+        currentPlaylistName = '';
         setSearchView('playlists');
+        persistSearchContext();
         $searchBreadcrumb.addClass('d-none').text('');
         renderPlaceholder($searchPlaylists, '正在加载歌单...');
         if (openModal) {
@@ -1804,6 +1909,7 @@
         currentPlaylistId = playlistId;
         currentPlaylistName = playlistName || playlistId;
         setSearchView('tracks');
+        persistSearchContext();
         $searchBreadcrumb.text(`歌单：${currentPlaylistName}（第 ${searchPage} 页）`).removeClass('d-none');
         renderPlaceholder($searchTracks, '正在加载歌单歌曲...');
         if (openModal) {
@@ -1986,7 +2092,7 @@
                 renderSearchTabs(data || []);
                 if (data && data.length) {
                     const sources = data.map((item) => item.source);
-                    if (!keepSource || !sources.includes(currentSource)) {
+                    if (!currentSource || !sources.includes(currentSource)) {
                         currentSource = sources[0];
                     }
                 }
@@ -2216,6 +2322,16 @@
         $('#mode-loop').on('click', () => setMode('loop'));
         $('#mode-list').on('click', () => setMode('list'));
 
+        const cachedSearch = loadSearchPreferences();
+        currentSource = cachedSearch.source || currentSource;
+        searchView = cachedSearch.view || searchView;
+        searchPageSize = cachedSearch.pageSize;
+        searchPage = cachedSearch.context.page || 1;
+        currentPlaylistId = cachedSearch.context.playlistId || '';
+        currentPlaylistName = cachedSearch.context.playlistName || '';
+        $('#search-query').val(cachedSearch.query);
+        $('#search-page-size').val(String(searchPageSize));
+
         updateSelectedCount();
         setSearchView(searchView);
         fetchSearchStatus(false);
@@ -2228,8 +2344,16 @@
         $('#search-btn').on('click', () => loadSearch(1, true));
         $('#search-clear').on('click', () => {
             $('#search-query').val('');
+            persistSearchQuery('');
+            searchPage = 1;
+            currentPlaylistId = '';
+            currentPlaylistName = '';
+            persistSearchContext();
             renderPlaceholder($searchResults, '请输入关键词开始搜索');
             stopDetailPolling();
+        });
+        $('#search-query').on('input', function () {
+            persistSearchQuery($(this).val());
         });
         $('#search-query').on('keypress', (event) => {
             if (event.key === 'Enter') {
@@ -2238,6 +2362,9 @@
         });
         $('#search-page-size').on('change', function () {
             searchPageSize = Number($(this).val()) || SEARCH_PAGE_SIZE_DEFAULT;
+            searchPageSize = normalizeSearchPageSize(searchPageSize);
+            $(this).val(String(searchPageSize));
+            persistSearchPageSize(searchPageSize);
             if (searchView === 'playlists') {
                 loadPlaylists(1);
             } else if (searchView === 'tracks' && currentPlaylistId) {
