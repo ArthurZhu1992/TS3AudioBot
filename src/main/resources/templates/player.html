@@ -837,6 +837,7 @@
     let loginPollTimer = null;
     let detailPollTimer = null;
     let detailPollToken = 0;
+    let playbackBoundarySyncAt = 0;
     let selectedItems = loadSelectedItems();
     let queueMetadataRefreshRunning = false;
     const queueRefreshAttempts = {};
@@ -2125,9 +2126,19 @@
 
     function updateProgressFromState() {
         const duration = Math.max(0, playbackState.durationMs || 0);
-        let position = Math.max(0, playbackState.positionMs || 0);
+        const basePosition = Math.max(0, playbackState.positionMs || 0);
+        let position = basePosition;
         if (playbackState.playing && playbackState.syncedAt) {
             position += Date.now() - playbackState.syncedAt;
+        }
+        if (playbackState.playing && duration > 0 && position >= duration) {
+            const now = Date.now();
+            if (now - playbackBoundarySyncAt >= 1200) {
+                playbackBoundarySyncAt = now;
+                setTimeout(syncPlaybackState, 150);
+            }
+        } else if (duration <= 0 || position < Math.max(0, duration - 1000)) {
+            playbackBoundarySyncAt = 0;
         }
         if (duration > 0) {
             position = Math.min(position, duration);
@@ -2143,6 +2154,7 @@
         if (!botId) return;
         $.getJSON(`/internal/bots/${botId}/playback`)
             .done((data) => {
+                const previousItemId = playbackState.itemId || '';
                 playbackState = {
                     status: data.status || '',
                     playing: Boolean(data.playing),
@@ -2159,6 +2171,9 @@
                     volumePercent: clampVolume(data.volumePercent),
                     syncedAt: Date.now()
                 };
+                if ((playbackState.itemId || '') !== previousItemId || (playbackState.positionMs || 0) < 1000) {
+                    playbackBoundarySyncAt = 0;
+                }
                 if (currentQueueItems.length) {
                     const current = currentQueueItems.find((item) => String(item.id) === String(playbackState.itemId));
                     if (current && current.track) {
