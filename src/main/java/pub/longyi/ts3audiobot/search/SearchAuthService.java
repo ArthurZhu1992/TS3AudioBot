@@ -5,6 +5,8 @@ import org.springframework.stereotype.Component;
 import pub.longyi.ts3audiobot.config.ConfigService;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -31,13 +33,21 @@ public final class SearchAuthService {
     }
 
     public Optional<SearchAuthStore.AuthRecord> resolveAuth(String source, String botId) {
-        SearchAuthStore.AuthRecord bot = getAuth(source, SCOPE_BOT, botId);
+        String safeBotId = botId == null ? "" : botId.trim();
+        SearchAuthStore.AuthRecord bot = getAuth(source, SCOPE_BOT, safeBotId);
         if (bot != null && !isExpired(bot) && bot.cookie() != null && !bot.cookie().isBlank()) {
             return Optional.of(bot);
         }
         SearchAuthStore.AuthRecord global = getAuth(source, SCOPE_GLOBAL, "");
         if (global != null && !isExpired(global) && global.cookie() != null && !global.cookie().isBlank()) {
             return Optional.of(global);
+        }
+        if (!safeBotId.isBlank()) {
+            // Backward compatibility for older records accidentally stored with global scope + botId.
+            SearchAuthStore.AuthRecord globalWithBot = getAuth(source, SCOPE_GLOBAL, safeBotId);
+            if (globalWithBot != null && !isExpired(globalWithBot) && globalWithBot.cookie() != null && !globalWithBot.cookie().isBlank()) {
+                return Optional.of(globalWithBot);
+            }
         }
         return Optional.empty();
     }
@@ -82,6 +92,18 @@ public final class SearchAuthService {
 
     public void deleteAuth(String source, String scopeType, String botId) {
         store.deleteAuth(source, scopeType, botId);
+    }
+
+    public List<SearchAuthStore.AuthRecord> listAuthBySource(String source) {
+        List<SearchAuthStore.AuthRecord> encrypted = store.listAuthBySource(source);
+        if (encrypted == null || encrypted.isEmpty()) {
+            return List.of();
+        }
+        List<SearchAuthStore.AuthRecord> records = new ArrayList<>(encrypted.size());
+        for (SearchAuthStore.AuthRecord record : encrypted) {
+            records.add(getAuth(record.source(), record.scopeType(), record.botId()));
+        }
+        return records;
     }
 
     public SearchAuthStore.LoginSessionRecord getLoginSession(String sessionId) {

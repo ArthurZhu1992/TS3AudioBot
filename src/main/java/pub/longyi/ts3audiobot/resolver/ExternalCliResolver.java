@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 /**
  * Created by: Arthur Zhu
@@ -37,6 +38,7 @@ public final class ExternalCliResolver implements TrackResolver {
 
     private final String sourceType;
     private final String command;
+    private final Supplier<String> cookieSupplier;
 
     /**
      * 创建 ExternalCliResolver 实例。
@@ -44,8 +46,13 @@ public final class ExternalCliResolver implements TrackResolver {
      * @param command 参数 command
      */
     public ExternalCliResolver(String sourceType, String command) {
+        this(sourceType, command, null);
+    }
+
+    public ExternalCliResolver(String sourceType, String command, Supplier<String> cookieSupplier) {
         this.sourceType = sourceType;
         this.command = command;
+        this.cookieSupplier = cookieSupplier;
     }
 
 
@@ -108,6 +115,7 @@ public final class ExternalCliResolver implements TrackResolver {
         args.add(command);
         String lower = command.toLowerCase();
         if (lower.contains("yt-dlp") || lower.contains("youtube-dl")) {
+            String queryArg = normalizeQqQuery(query);
             args.add("-q");
             args.add("--no-warnings");
             args.add("--no-playlist");
@@ -119,11 +127,73 @@ public final class ExternalCliResolver implements TrackResolver {
             args.add("--get-thumbnail");
             args.add("-f");
             args.add("bestaudio");
-            args.add(query);
+            if (shouldAttachQqAuth(queryArg)) {
+                args.add("--referer");
+                args.add("https://y.qq.com/");
+                String cookie = resolveCookie();
+                if (!cookie.isBlank()) {
+                    args.add("--add-headers");
+                    args.add("Cookie: " + cookie);
+                }
+            }
+            args.add(queryArg);
         } else {
             args.add(query);
         }
         return args;
+    }
+
+    private String normalizeQqQuery(String query) {
+        String raw = query == null ? "" : query.trim();
+        if (raw.isBlank()) {
+            return raw;
+        }
+        if (isHttpUrl(raw)) {
+            return raw;
+        }
+        if (!"qq".equalsIgnoreCase(sourceType)) {
+            return raw;
+        }
+        return "https://y.qq.com/n/ryqq/songDetail/" + raw;
+    }
+
+    private boolean shouldAttachQqAuth(String query) {
+        if ("qq".equalsIgnoreCase(sourceType)) {
+            return true;
+        }
+        return isQqUrl(query);
+    }
+
+    private boolean isQqUrl(String query) {
+        if (query == null) {
+            return false;
+        }
+        String lower = query.trim().toLowerCase();
+        return lower.contains("y.qq.com")
+            || lower.contains("qqmusic.qq.com")
+            || lower.contains("c.y.qq.com")
+            || lower.contains("u.y.qq.com");
+    }
+
+    private boolean isHttpUrl(String value) {
+        if (value == null) {
+            return false;
+        }
+        String lower = value.trim().toLowerCase();
+        return lower.startsWith("http://") || lower.startsWith("https://");
+    }
+
+    private String resolveCookie() {
+        if (cookieSupplier == null) {
+            return "";
+        }
+        try {
+            String cookie = cookieSupplier.get();
+            return cookie == null ? "" : cookie.trim();
+        } catch (Exception ex) {
+            log.debug("[Resolver:{}] failed to load cookie", sourceType, ex);
+            return "";
+        }
     }
 
     private ParsedOutput parseOutput(List<String> output, String fallbackTitle) {

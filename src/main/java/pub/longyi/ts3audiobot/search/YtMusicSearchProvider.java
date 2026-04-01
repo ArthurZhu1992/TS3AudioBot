@@ -494,6 +494,8 @@ public final class YtMusicSearchProvider extends YtDlpSearchProvider implements 
         String cover = detail.coverUrl() != null && !detail.coverUrl().isBlank() ? detail.coverUrl() : base.coverUrl();
         long duration = detail.durationMs() > 0 ? detail.durationMs() : base.durationMs();
         Long playCount = detail.playCount() != null && detail.playCount() > 0 ? detail.playCount() : base.playCount();
+        Boolean vipRequired = detail.vipRequired() != null ? detail.vipRequired() : base.vipRequired();
+        String vipHint = detail.vipHint() != null && !detail.vipHint().isBlank() ? detail.vipHint() : base.vipHint();
         return new SearchItem(
             base.uid(),
             base.id(),
@@ -503,7 +505,9 @@ public final class YtMusicSearchProvider extends YtDlpSearchProvider implements 
             duration,
             playCount,
             base.pageUrl(),
-            base.source()
+            base.source(),
+            vipRequired,
+            vipHint == null ? "" : vipHint
         );
     }
 
@@ -698,7 +702,9 @@ public final class YtMusicSearchProvider extends YtDlpSearchProvider implements 
             durationMs,
             playCount,
             pageUrl,
-            source()
+            source(),
+            null,
+            ""
         ));
     }
 
@@ -863,7 +869,9 @@ public final class YtMusicSearchProvider extends YtDlpSearchProvider implements 
             durationMs,
             null,
             pageUrl,
-            "ytmusic"
+            "ytmusic",
+            null,
+            ""
         );
     }
 

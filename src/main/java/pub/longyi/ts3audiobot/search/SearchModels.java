@@ -16,7 +16,9 @@ public final class SearchModels {
         long durationMs,
         Long playCount,
         String pageUrl,
-        String source
+        String source,
+        Boolean vipRequired,
+        String vipHint
     ) {
     }
 
@@ -82,7 +84,10 @@ public final class SearchModels {
         boolean loggedIn,
         String scopeUsed,
         boolean supportsPlaylists,
-        boolean enabled
+        boolean enabled,
+        String vipState,
+        String vipHint,
+        String accountInfo
     ) {
     }
 

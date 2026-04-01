@@ -2,6 +2,7 @@ package pub.longyi.ts3audiobot;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Created by: Arthur Zhu
@@ -22,6 +23,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * <p>约束：调用方需遵守方法契约。</p>
  */
 @SpringBootApplication
+@EnableScheduling
 public class Ts3AudioBotApplication {
 
     /**

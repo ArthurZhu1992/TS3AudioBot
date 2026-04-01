@@ -21,7 +21,6 @@ import java.sql.Statement;
  * 负责 AdminStore 相关功能。
  */
 
-
 /**
  * AdminStore 相关功能。
  *
@@ -54,10 +53,6 @@ public final class AdminStore {
 
     private final Path dbPath;
 
-    /**
-     * 创建 AdminStore 实例。
-     * @param dbPath 参数 dbPath
-     */
     public AdminStore(Path dbPath) {
         if (dbPath == null) {
             throw new IllegalArgumentException("dbPath must not be null");
@@ -65,10 +60,6 @@ public final class AdminStore {
         this.dbPath = dbPath;
     }
 
-
-    /**
-     * 执行 initialize 操作。
-     */
     public void initialize() {
         ensureParentDir();
         try (Connection connection = openConnection();
@@ -81,11 +72,6 @@ public final class AdminStore {
         }
     }
 
-
-    /**
-     * 执行 hasAdmin 操作。
-     * @return 返回值
-     */
     public boolean hasAdmin() {
         try (Connection connection = openConnection();
              Statement statement = connection.createStatement();
@@ -99,12 +85,6 @@ public final class AdminStore {
         }
     }
 
-
-    /**
-     * 执行 getAdmin 操作。
-     * @param username 参数 username
-     * @return 返回值
-     */
     public AdminRecord getAdmin(String username) {
         if (username == null || username.isBlank()) {
             return null;
@@ -127,13 +107,6 @@ public final class AdminStore {
         }
     }
 
-
-    /**
-     * 执行 createAdmin 操作。
-     * @param username 参数 username
-     * @param salt 参数 salt
-     * @param hash 参数 hash
-     */
     public void createAdmin(String username, String salt, String hash) {
         try (Connection connection = openConnection();
              PreparedStatement statement = connection.prepareStatement(SQL_INSERT_ADMIN)) {
@@ -147,11 +120,6 @@ public final class AdminStore {
         }
     }
 
-
-    /**
-     * 执行 getDbPath 操作。
-     * @return 返回值
-     */
     public Path getDbPath() {
         return dbPath;
     }

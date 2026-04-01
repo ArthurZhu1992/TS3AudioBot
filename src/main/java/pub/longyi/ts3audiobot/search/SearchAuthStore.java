@@ -11,6 +11,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * SearchAuthStore 相关功能。
@@ -65,6 +67,11 @@ public final class SearchAuthStore {
         SELECT source, scope_type, bot_id, cookie, token, extra_json, expires_at, updated_at
           FROM search_auth
          WHERE source = ? AND scope_type = ? AND bot_id = ?
+        """;
+    private static final String SQL_SELECT_AUTH_BY_SOURCE = """
+        SELECT source, scope_type, bot_id, cookie, token, extra_json, expires_at, updated_at
+          FROM search_auth
+         WHERE source = ?
         """;
     private static final String SQL_DELETE_AUTH = """
         DELETE FROM search_auth WHERE source = ? AND scope_type = ? AND bot_id = ?
@@ -165,6 +172,34 @@ public final class SearchAuthStore {
             statement.executeUpdate();
         } catch (SQLException ex) {
             throw new IllegalStateException("Failed to delete search auth", ex);
+        }
+    }
+
+    public List<AuthRecord> listAuthBySource(String source) {
+        if (source == null || source.isBlank()) {
+            return List.of();
+        }
+        List<AuthRecord> records = new ArrayList<>();
+        try (Connection connection = openConnection();
+             PreparedStatement statement = connection.prepareStatement(SQL_SELECT_AUTH_BY_SOURCE)) {
+            statement.setString(1, source.trim());
+            try (ResultSet rs = statement.executeQuery()) {
+                while (rs.next()) {
+                    records.add(new AuthRecord(
+                        rs.getString("source"),
+                        rs.getString("scope_type"),
+                        rs.getString("bot_id"),
+                        rs.getString("cookie"),
+                        rs.getString("token"),
+                        rs.getString("extra_json"),
+                        parseInstant(rs.getString("expires_at")),
+                        parseInstant(rs.getString("updated_at"))
+                    ));
+                }
+            }
+            return records;
+        } catch (SQLException ex) {
+            throw new IllegalStateException("Failed to list search auth by source", ex);
         }
     }
 

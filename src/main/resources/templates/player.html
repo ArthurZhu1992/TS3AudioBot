@@ -214,6 +214,21 @@
             opacity: 0.6;
         }
 
+        .qq-vip-indicator {
+            margin-left: 6px;
+            font-size: 0.85rem;
+            vertical-align: middle;
+            cursor: help;
+        }
+
+        .qq-vip-indicator.ok {
+            color: #fbbf24;
+        }
+
+        .qq-vip-indicator.bad {
+            color: #f87171;
+        }
+
         .search-result {
             display: flex;
             gap: 12px;
@@ -263,6 +278,34 @@
             gap: 8px;
         }
 
+        .search-vip-badge {
+            margin-left: 6px;
+            font-size: 0.72rem;
+            padding: 0.12rem 0.4rem;
+            border-radius: 999px;
+            border: 1px solid transparent;
+            vertical-align: middle;
+            cursor: help;
+        }
+
+        .search-vip-badge.need {
+            color: #fca5a5;
+            border-color: rgba(252, 165, 165, 0.5);
+            background: rgba(185, 28, 28, 0.2);
+        }
+
+        .search-vip-badge.free {
+            color: #86efac;
+            border-color: rgba(134, 239, 172, 0.5);
+            background: rgba(21, 128, 61, 0.2);
+        }
+
+        .search-vip-badge.unknown {
+            color: #d4d4d8;
+            border-color: rgba(212, 212, 216, 0.45);
+            background: rgba(113, 113, 122, 0.18);
+        }
+
         .search-scroll {
             max-height: clamp(260px, 45vh, 520px);
             overflow-y: auto;
@@ -274,6 +317,40 @@
             padding: 20px;
             text-align: center;
             color: var(--muted);
+        }
+
+        .search-auth-chip {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(134, 239, 172, 0.3);
+            background: linear-gradient(90deg, rgba(22, 101, 52, 0.22), rgba(21, 128, 61, 0.1));
+        }
+
+        .search-auth-chip-meta {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            min-width: 0;
+            color: #d1fae5;
+            font-size: 0.82rem;
+        }
+
+        .search-auth-chip-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 999px;
+            background: #34d399;
+            box-shadow: 0 0 0 4px rgba(52, 211, 153, 0.22);
+            flex: 0 0 auto;
+        }
+
+        #search-login-manage-btn {
+            border-color: rgba(255, 255, 255, 0.24);
+            background: rgba(255, 255, 255, 0.04);
         }
 
         .search-toolbar {
@@ -612,6 +689,16 @@
                         <div class="mb-2">当前平台需要登录后才能使用搜索与歌单功能。</div>
                         <button id="search-login-btn" class="btn btn-primary btn-sm" type="button">立即登录</button>
                     </div>
+                    <div id="search-login-manage-panel" class="search-auth-chip d-none mb-2">
+                        <div class="search-auth-chip-meta">
+                            <span class="search-auth-chip-dot"></span>
+                            <span id="search-login-manage-text">登录状态正常</span>
+                        </div>
+                        <button id="search-login-manage-btn" class="btn btn-outline-light btn-sm" type="button">
+                            <i class="fas fa-rotate-right me-1"></i><span id="search-login-manage-btn-text">更新登录</span>
+                        </button>
+                    </div>
+                    <div id="search-vip-hint" class="text-muted small d-none mb-2"></div>
                     <div class="text-muted small">搜索结果和歌单内容会在弹框中打开。</div>
                 </div>
             </div>
@@ -740,9 +827,26 @@
                     <input type="radio" class="btn-check" name="search-login-scope" id="login-scope-bot" autocomplete="off">
                     <label class="btn btn-outline-light" for="login-scope-bot">当前机器人</label>
                 </div>
-                <div id="search-login-status" class="text-muted small mb-2">正在生成二维码...</div>
-                <div class="d-flex justify-content-center">
-                    <img id="search-login-qr" alt="QR" style="max-width: 240px; border-radius: 10px; display: none;" />
+                <div id="search-login-qr-section">
+                    <div id="search-login-status" class="text-muted small mb-2">正在生成二维码...</div>
+                    <div class="d-flex justify-content-center">
+                        <img id="search-login-qr" alt="QR" style="max-width: 240px; border-radius: 10px; display: none;" />
+                    </div>
+                </div>
+                <div id="search-login-manual-section" class="d-none">
+                    <div id="search-login-manual-status" class="text-muted small mb-2">QQ音乐登录改为手动导入模式。</div>
+                    <ol class="small mb-3" style="padding-left: 1.1rem;">
+                        <li class="mb-1">点击「打开QQ音乐网页登录页」并完成QQ登录。</li>
+                        <li class="mb-1">登录完成后按 F12，切换到 Console，粘贴脚本并回车。</li>
+                        <li class="mb-1">脚本会自动复制登录信息，回到这里粘贴并提交。</li>
+                        <li class="mb-1">若提示缺少 key，请在 F12 的 Network 里找 y.qq.com 请求，复制请求头里的 <code>cookie:</code> 整行再提交。</li>
+                    </ol>
+                    <div class="d-flex flex-wrap gap-2 mb-3">
+                        <button id="qq-open-login-page" class="btn btn-outline-light btn-sm" type="button">打开QQ音乐网页登录页</button>
+                        <button id="qq-copy-console-script" class="btn btn-primary btn-sm" type="button">复制F12脚本</button>
+                    </div>
+                    <textarea id="qq-manual-payload" class="form-control mb-2" rows="5" placeholder="在 QQ 音乐页面执行脚本后，把复制的内容粘贴到这里"></textarea>
+                    <button id="qq-submit-manual-login" class="btn btn-success btn-sm" type="button">提交登录信息</button>
                 </div>
             </div>
         </div>
@@ -798,7 +902,8 @@
     const SEARCH_CONTEXT_KEY_PREFIX = 'ts3ab.search.context.';
     const SEARCH_PAGE_SIZE_KEY = 'ts3ab.search.pageSize';
     const SEARCH_PAGE_SIZE_DEFAULT = 30;
-    const SEARCH_SOURCE_ORDER = ['yt', 'ytmusic', 'netease', 'qq'];
+    const SEARCH_SOURCE_ORDER = ['yt', 'ytmusic', 'qq', 'netease'];
+    const QQ_WEB_LOGIN_URL = 'https://y.qq.com/';
 
     const params = new URLSearchParams(window.location.search);
     const $botSelect = $('#botSelect');
@@ -812,9 +917,21 @@
     const $searchTracks = $('#search-tracks');
     const $searchLoginPanel = $('#search-login-panel');
     const $searchLoginBtn = $('#search-login-btn');
+    const $searchLoginManagePanel = $('#search-login-manage-panel');
+    const $searchLoginManageBtn = $('#search-login-manage-btn');
+    const $searchLoginManageText = $('#search-login-manage-text');
+    const $searchLoginManageBtnText = $('#search-login-manage-btn-text');
+    const $searchVipHint = $('#search-vip-hint');
     const $searchLoginStatus = $('#search-login-status');
     const $searchLoginQr = $('#search-login-qr');
     const $searchLoginModal = $('#searchLoginModal');
+    const $searchLoginQrSection = $('#search-login-qr-section');
+    const $searchLoginManualSection = $('#search-login-manual-section');
+    const $searchLoginManualStatus = $('#search-login-manual-status');
+    const $qqManualPayload = $('#qq-manual-payload');
+    const $qqOpenLoginPage = $('#qq-open-login-page');
+    const $qqCopyConsoleScript = $('#qq-copy-console-script');
+    const $qqSubmitManualLogin = $('#qq-submit-manual-login');
     const $searchBrowserModal = $('#searchBrowserModal');
     const $searchModalSubtitle = $('#search-modal-subtitle');
     const $searchPageInfo = $('#search-page-info');
@@ -1560,6 +1677,39 @@
         return `${(num / 100000000).toFixed(1).replace(/\\.0$/, '')}亿`;
     }
 
+    function formatQqVipStateText(status) {
+        const state = String(status && status.vipState ? status.vipState : 'unknown').toLowerCase();
+        if (state === 'vip') {
+            return 'VIP';
+        }
+        return '非VIP';
+    }
+
+    function renderTrackVipBadge(item) {
+        if (!item || String(item.source || '').toLowerCase() !== 'qq') {
+            return '';
+        }
+        if (item.vipRequired === true) {
+            const hint = escapeHtml(item.vipHint || '该歌曲可能需要VIP或单曲购买');
+            return `<span class="search-vip-badge need" title="${hint}">需VIP</span>`;
+        }
+        if (item.vipRequired === false) {
+            const hint = escapeHtml(item.vipHint || '该歌曲通常可直接播放');
+            return `<span class="search-vip-badge free" title="${hint}">可播</span>`;
+        }
+        const hint = escapeHtml(item.vipHint || '未能识别该歌曲是否需要VIP');
+        return `<span class="search-vip-badge unknown" title="${hint}">未知</span>`;
+    }
+
+    function updateSearchVipHint() {
+        const status = searchStatusMap[currentSource];
+        if (!status || String(status.source || '').toLowerCase() !== 'qq') {
+            $searchVipHint.addClass('d-none').text('');
+            return;
+        }
+        $searchVipHint.addClass('d-none').text('');
+    }
+
     function renderSearchTabs(statuses) {
         $searchTabs.empty();
         const map = {};
@@ -1591,18 +1741,34 @@
         const status = searchStatusMap[currentSource];
         if (!status) {
             $searchLoginPanel.addClass('d-none');
+            $searchLoginManagePanel.addClass('d-none');
+            $searchVipHint.addClass('d-none').text('');
             return;
         }
         const requiresLogin = status.requiresLogin;
         const loggedIn = status.loggedIn;
         if (requiresLogin && !loggedIn) {
             $searchLoginPanel.removeClass('d-none');
+            $searchLoginManagePanel.addClass('d-none');
             renderPlaceholder($searchResults, '请先登录后使用搜索功能');
             renderPlaceholder($searchPlaylists, '请先登录后查看歌单');
             renderPlaceholder($searchTracks, '请先登录后查看歌单');
         } else {
             $searchLoginPanel.addClass('d-none');
+            if (requiresLogin && loggedIn) {
+                const isQq = currentSource === 'qq';
+                const summary = isQq
+                    ? `QQ登录已连接 · ${(status.accountInfo || 'QQ账号未知')} · ${formatQqVipStateText(status)}`
+                    : '登录状态已生效';
+                const buttonText = isQq ? '刷新QQ登录' : '重新登录';
+                $searchLoginManageText.text(summary);
+                $searchLoginManageBtnText.text(buttonText);
+                $searchLoginManagePanel.removeClass('d-none');
+            } else {
+                $searchLoginManagePanel.addClass('d-none');
+            }
         }
+        updateSearchVipHint();
     }
 
     function showSearchBrowser() {
@@ -1671,6 +1837,8 @@
     function buildSearchRow(item, checked) {
         const sub = buildTrackMetaLine(item);
         const ref = buildTrackReference(item);
+        const title = escapeHtml(item.title || '未知歌曲');
+        const vipBadge = renderTrackVipBadge(item);
         const coverTag = item.coverUrl
             ? `<img class="search-cover" src="${item.coverUrl}" alt="cover" loading="lazy" referrerpolicy="no-referrer" />`
             : `<div class="search-cover"></div>`;
@@ -1680,7 +1848,7 @@
                 <input class="form-check-input search-select" type="checkbox" data-uid="${item.uid}" data-query="${item.pageUrl}" data-item="${encodedItem}" ${checked ? 'checked' : ''} />
                 ${coverTag}
                 <div class="search-meta">
-                    <div class="search-title">${item.title || '未知歌曲'}</div>
+                    <div class="search-title">${title}${vipBadge}</div>
                     <div class="search-sub">${sub}</div>
                     <div class="search-ref">${ref}</div>
                 </div>
@@ -2018,13 +2186,121 @@
         $('.search-select').prop('checked', false);
     }
 
+    function getSearchLoginScope() {
+        return $('#login-scope-bot').is(':checked') ? 'bot' : 'global';
+    }
+
+    function showSearchLoginQrMode() {
+        $searchLoginQrSection.removeClass('d-none');
+        $searchLoginManualSection.addClass('d-none');
+    }
+
+    function showSearchLoginManualMode() {
+        $searchLoginQrSection.addClass('d-none');
+        $searchLoginManualSection.removeClass('d-none');
+        $searchLoginManualStatus.text('QQ音乐登录改为手动导入模式。');
+    }
+
+    function copyTextToClipboard(text) {
+        if (!text) {
+            return Promise.reject(new Error('empty text'));
+        }
+        if (navigator.clipboard && window.isSecureContext) {
+            return navigator.clipboard.writeText(text);
+        }
+        return new Promise((resolve, reject) => {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.left = '-9999px';
+            textarea.style.top = '0';
+            document.body.appendChild(textarea);
+            textarea.focus();
+            textarea.select();
+            try {
+                const ok = document.execCommand('copy');
+                document.body.removeChild(textarea);
+                if (ok) {
+                    resolve();
+                } else {
+                    reject(new Error('execCommand failed'));
+                }
+            } catch (err) {
+                document.body.removeChild(textarea);
+                reject(err);
+            }
+        });
+    }
+
+    function buildQqManualConsoleScript() {
+        return [
+            "(() => {",
+            "  const payload = {",
+            "    cookie: document.cookie || '',",
+            "    url: location.href,",
+            "    origin: location.origin,",
+            "    userAgent: navigator.userAgent,",
+            "    createdAt: new Date().toISOString()",
+            "  };",
+            "  const text = JSON.stringify(payload);",
+            "  const done = (mode) => {",
+            "    console.log('[TS3AudioBot] login payload copied by ' + mode);",
+            "    return text;",
+            "  };",
+            "  const legacyCopy = () => {",
+            "    if (typeof copy === 'function') {",
+            "      copy(text);",
+            "      return done('copy()');",
+            "    }",
+            "    if (window.prompt) {",
+            "      window.prompt('Copy this payload', text);",
+            "      return done('prompt');",
+            "    }",
+            "    return text;",
+            "  };",
+            "  if (navigator.clipboard && window.isSecureContext) {",
+            "    return navigator.clipboard.writeText(text).then(() => done('navigator.clipboard')).catch(() => legacyCopy());",
+            "  }",
+            "  return Promise.resolve(legacyCopy());",
+            "})();"
+        ].join('\n');
+    }
+
+    function copyQqManualConsoleScript() {
+        copyTextToClipboard(buildQqManualConsoleScript())
+            .then(() => {
+                showNotification('F12脚本已复制，去 QQ 音乐页面执行', 'success');
+            })
+            .catch(() => {
+                showNotification('脚本复制失败，请手动复制', 'warning');
+            });
+    }
+
+    function openQqWebLoginPage() {
+        window.open(QQ_WEB_LOGIN_URL, '_blank', 'noopener');
+        $searchLoginManualStatus.text('已打开 y.qq.com，请点击页面右上角“登录”并完成扫码。');
+    }
+
     function startSearchLogin() {
         const botId = getBotId();
-        const scope = $('#login-scope-bot').is(':checked') ? 'bot' : 'global';
+        const scope = getSearchLoginScope();
         if (scope === 'bot' && !botId) {
             showNotification('请先选择机器人', 'warning');
             return;
         }
+        const modal = bootstrap.Modal.getOrCreateInstance($searchLoginModal[0]);
+        if (currentSource === 'qq') {
+            if (loginPollTimer) {
+                clearInterval(loginPollTimer);
+                loginPollTimer = null;
+            }
+            showSearchLoginManualMode();
+            $qqManualPayload.val('');
+            modal.show();
+            copyQqManualConsoleScript();
+            return;
+        }
+        showSearchLoginQrMode();
         $searchLoginStatus.text('正在生成二维码...');
         $searchLoginQr.hide().attr('src', '');
         $.post(`/internal/search/${currentSource}/login`, { scope, botId })
@@ -2046,7 +2322,6 @@
                 const text = resp && resp.responseText ? resp.responseText : '登录失败';
                 $searchLoginStatus.text(text);
             });
-        const modal = bootstrap.Modal.getOrCreateInstance($searchLoginModal[0]);
         modal.show();
     }
 
@@ -2083,6 +2358,35 @@
             })
             .fail(() => {
                 $searchLoginStatus.text('登录状态获取失败');
+            });
+    }
+
+    function submitQqManualLogin() {
+        const botId = getBotId();
+        const scope = getSearchLoginScope();
+        if (scope === 'bot' && !botId) {
+            showNotification('请先选择机器人', 'warning');
+            return;
+        }
+        const payload = ($qqManualPayload.val() || '').trim();
+        if (!payload) {
+            showNotification('请先粘贴登录信息', 'warning');
+            return;
+        }
+        $searchLoginManualStatus.text('正在导入登录信息...');
+        $.post('/internal/search/qq/login/manual', { scope, botId, payload })
+            .done((resp) => {
+                const message = resp && resp.message ? resp.message : 'QQ登录信息导入成功';
+                $searchLoginManualStatus.text(message);
+                showNotification(message, 'success');
+                const modal = bootstrap.Modal.getOrCreateInstance($searchLoginModal[0]);
+                modal.hide();
+                fetchSearchStatus(true);
+            })
+            .fail((resp) => {
+                const text = resp && resp.responseText ? resp.responseText : '导入失败';
+                $searchLoginManualStatus.text(text);
+                showNotification(text, 'error');
             });
     }
 
@@ -2419,11 +2723,18 @@
         });
 
         $searchLoginBtn.on('click', startSearchLogin);
+        $searchLoginManageBtn.on('click', startSearchLogin);
+        $qqOpenLoginPage.on('click', openQqWebLoginPage);
+        $qqCopyConsoleScript.on('click', copyQqManualConsoleScript);
+        $qqSubmitManualLogin.on('click', submitQqManualLogin);
         $searchLoginModal.on('hidden.bs.modal', () => {
             if (loginPollTimer) {
                 clearInterval(loginPollTimer);
                 loginPollTimer = null;
             }
+            $qqManualPayload.val('');
+            $searchLoginManualStatus.text('QQ音乐登录改为手动导入模式。');
+            showSearchLoginQrMode();
         });
         $searchBrowserModal.on('hidden.bs.modal', () => {
             stopDetailPolling();

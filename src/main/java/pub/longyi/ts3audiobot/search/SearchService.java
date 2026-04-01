@@ -1,5 +1,7 @@
 package pub.longyi.ts3audiobot.search;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import pub.longyi.ts3audiobot.config.ConfigService;
@@ -15,6 +17,7 @@ import jakarta.annotation.PreDestroy;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -24,13 +27,21 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Component
 public final class SearchService {
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final Pattern RAW_COOKIE_LINE_PATTERN = Pattern.compile("(?im)^\\s*cookie\\s*:\\s*(.+)$");
+    private static final Pattern CURL_COOKIE_HEADER_PATTERN = Pattern.compile(
+        "(?is)(?:-H|--header)\\s+(?:'|\")\\s*cookie\\s*:\\s*([^'\"]+)(?:'|\")"
+    );
     private static final int DEFAULT_PAGE = 1;
     private static final int MAX_PAGE_SIZE = 100;
     private static final Duration DETAIL_JOB_TIMEOUT = Duration.ofMinutes(2);
+    
     private static final String DETAIL_STATUS_RUNNING = "running";
     private static final String DETAIL_STATUS_READY = "ready";
     private static final String DETAIL_STATUS_EMPTY = "empty";
@@ -76,13 +87,30 @@ public final class SearchService {
             boolean loggedIn = auth.isPresent() && !authService.isExpired(auth.get());
             String scopeUsed = auth.map(SearchAuthStore.AuthRecord::scopeType).orElse("none");
             boolean enabled = !requiresLogin || loggedIn;
+            String vipState = "na";
+            String vipHint = "";
+            String accountInfo = "";
+            if ("qq".equalsIgnoreCase(provider.source())) {
+                if (!loggedIn) {
+                    vipState = "unknown";
+                    vipHint = "未登录，无法识别VIP状态";
+                } else if (provider instanceof QqMusicSearchProvider qqProvider) {
+                    QqMusicSearchProvider.VipProbeResult vipProbe = qqProvider.probeVipStatus(auth.orElse(null));
+                    vipState = vipProbe.state();
+                    vipHint = vipProbe.message();
+                    accountInfo = resolveQqAccountInfo(auth.orElse(null));
+                }
+            }
             statuses.add(new SearchStatus(
                 provider.source(),
                 requiresLogin,
                 loggedIn,
                 scopeUsed,
                 provider.supportsPlaylists(),
-                enabled
+                enabled,
+                vipState,
+                vipHint,
+                accountInfo
             ));
         }
         return statuses;
@@ -91,7 +119,8 @@ public final class SearchService {
     public LoginStart startLogin(String source, String scope, String botId) {
         SearchProvider provider = requireProvider(source);
         String safeScope = "bot".equalsIgnoreCase(scope) ? SearchAuthService.SCOPE_BOT : SearchAuthService.SCOPE_GLOBAL;
-        SearchProvider.LoginStartResult result = provider.startLogin(new SearchProvider.LoginRequest(safeScope, botId));
+        String safeBotId = normalizeScopeBotId(safeScope, botId);
+        SearchProvider.LoginStartResult result = provider.startLogin(new SearchProvider.LoginRequest(safeScope, safeBotId));
         String sessionId = result.sessionId() == null || result.sessionId().isBlank()
             ? UUID.randomUUID().toString()
             : result.sessionId();
@@ -100,7 +129,7 @@ public final class SearchService {
             sessionId,
             provider.source(),
             safeScope,
-            normalizeBotId(botId),
+            safeBotId,
             LoginStatus.PENDING.name().toLowerCase(Locale.ROOT),
             result.payload(),
             now,
@@ -124,6 +153,7 @@ public final class SearchService {
         if (session == null) {
             return new LoginPoll(LoginStatus.ERROR, "登录会话不存在");
         }
+
         SearchProvider provider = requireProvider(session.source());
         SearchProvider.LoginPollResult result = provider.pollLogin(new SearchProvider.LoginPollRequest(
             session.sessionId(),
@@ -147,7 +177,7 @@ public final class SearchService {
             authService.updateLoginStatus(session.sessionId(), result.status().name().toLowerCase(Locale.ROOT));
         }
         if (result.status() == LoginStatus.CONFIRMED && result.authRecord() != null) {
-            authService.upsertAuth(result.authRecord());
+            authService.upsertAuth(normalizeAuthRecordForStorage(result.authRecord()));
             authService.deleteLoginSession(session.sessionId());
         } else if (result.status() == LoginStatus.EXPIRED) {
             authService.deleteLoginSession(session.sessionId());
@@ -155,6 +185,42 @@ public final class SearchService {
             authService.updateLoginStatus(session.sessionId(), result.status().name().toLowerCase(Locale.ROOT));
         }
         return new LoginPoll(result.status(), result.message());
+    }
+
+    public String importQqManualAuth(String scope, String botId, String payloadText) {
+        String safeScope = "bot".equalsIgnoreCase(scope) ? SearchAuthService.SCOPE_BOT : SearchAuthService.SCOPE_GLOBAL;
+        String safeBotId = normalizeScopeBotId(safeScope, botId);
+        String cookie = extractCookieFromPayload(payloadText);
+        if (cookie.isBlank()) {
+            throw new IllegalArgumentException("鏈粠杈撳叆鍐呭涓彁鍙栧埌 cookie");
+        }
+        cookie = normalizeCookieHeader(cookie);
+        String uin = extractFirstCookie(cookie, "uin", "p_uin", "qqmusic_uin", "qm_uid");
+        if (uin.isBlank()) {
+            throw new IllegalArgumentException("cookie 缺少 uin/p_uin，无法导入");
+        }
+        String key = extractFirstCookie(cookie, "p_skey", "skey", "qm_keyst", "qqmusic_key");
+        if (key.isBlank()) {
+            throw new IllegalArgumentException("cookie 缺少 p_skey/skey/qm_keyst/qqmusic_key，无法导入");
+        }
+        long gtk = calcGtk(cookie);
+        Map<String, String> extra = new LinkedHashMap<>();
+        extra.put("uin", uin);
+        extra.put("g_tk", Long.toString(gtk));
+        extra.put("mode", "manual_console");
+        extra.put("importedAt", Instant.now().toString());
+        SearchAuthStore.AuthRecord auth = new SearchAuthStore.AuthRecord(
+            "qq",
+            safeScope,
+            safeBotId,
+            cookie,
+            "",
+            toJson(extra),
+            null,
+            Instant.now()
+        );
+        authService.upsertAuth(auth);
+        return "QQ 鐧诲綍淇℃伅宸插鍏ワ紙宸蹭繚瀛橈級";
     }
 
     public SearchPage search(String source, String botId, String query, int page, int pageSize) {
@@ -167,7 +233,7 @@ public final class SearchService {
                 if (auth != null) {
                     authService.clearIfExpired(auth);
                 }
-                throw new IllegalStateException("需要先登录");
+                throw new IllegalStateException("闇€瑕佸厛鐧诲綍");
             }
         }
         int safePage = normalizePage(page);
@@ -200,7 +266,7 @@ public final class SearchService {
                 if (auth != null) {
                     authService.clearIfExpired(auth);
                 }
-                throw new IllegalStateException("闇€瑕佸厛鐧诲綍");
+                throw new IllegalStateException("闂団偓鐟曚礁鍘涢惂璇茬秿");
             }
         }
         int safePage = normalizePage(page);
@@ -252,7 +318,7 @@ public final class SearchService {
             if (auth != null) {
                 authService.clearIfExpired(auth);
             }
-            throw new IllegalStateException("需要先登录");
+            throw new IllegalStateException("闇€瑕佸厛鐧诲綍");
         }
         int safePage = normalizePage(page);
         int safeSize = normalizePageSize(pageSize);
@@ -283,7 +349,7 @@ public final class SearchService {
             if (auth != null) {
                 authService.clearIfExpired(auth);
             }
-            throw new IllegalStateException("需要先登录");
+            throw new IllegalStateException("闇€瑕佸厛鐧诲綍");
         }
         int safePage = normalizePage(page);
         int safeSize = normalizePageSize(pageSize);
@@ -358,6 +424,211 @@ public final class SearchService {
         return botId == null ? "" : botId.trim();
     }
 
+    private SearchAuthStore.AuthRecord normalizeAuthRecordForStorage(SearchAuthStore.AuthRecord auth) {
+        if (auth == null) {
+            return null;
+        }
+        Instant expiresAt = auth.expiresAt();
+        if ("qq".equalsIgnoreCase(auth.source())) {
+            expiresAt = null;
+        }
+        return new SearchAuthStore.AuthRecord(
+            auth.source(),
+            auth.scopeType(),
+            auth.botId(),
+            auth.cookie(),
+            auth.token(),
+            auth.extraJson(),
+            expiresAt,
+            Instant.now()
+        );
+    }
+
+    private String resolveQqAccountInfo(SearchAuthStore.AuthRecord auth) {
+        if (auth == null) {
+            return "";
+        }
+        String uin = "";
+        try {
+            if (auth.extraJson() != null && !auth.extraJson().isBlank()) {
+                JsonNode extra = MAPPER.readTree(auth.extraJson());
+                uin = extra.path("uin").asText("");
+            }
+        } catch (Exception ignored) {
+        }
+        if (uin.isBlank()) {
+            uin = extractFirstCookie(auth.cookie(), "uin", "p_uin", "qqmusic_uin", "qm_uid");
+        }
+        if (uin.startsWith("o")) {
+            uin = uin.substring(1);
+        }
+        uin = uin.replaceAll("^0+", "");
+        if (uin.isBlank()) {
+            return "QQ璐﹀彿鏈煡";
+        }
+        if (uin.length() <= 4) {
+            return "QQ " + uin;
+        }
+        String masked = uin.substring(0, Math.min(3, uin.length())) + "****" + uin.substring(uin.length() - 2);
+        return "QQ " + masked;
+    }
+
+    private String normalizeScopeBotId(String scopeType, String botId) {
+        String normalized = normalizeBotId(botId);
+        if (SearchAuthService.SCOPE_BOT.equals(scopeType)) {
+            if (normalized.isBlank()) {
+                throw new IllegalArgumentException("褰撳墠鑼冨洿鏄満鍣ㄤ汉鐧诲綍锛屼絾 botId 涓虹┖");
+            }
+            return normalized;
+        }
+        return "";
+    }
+
+    private String extractCookieFromPayload(String payloadText) {
+        if (payloadText == null) {
+            return "";
+        }
+        String raw = payloadText.trim();
+        if (raw.isBlank()) {
+            return "";
+        }
+        try {
+            JsonNode root = MAPPER.readTree(raw);
+            String cookie = root.path("cookie").asText("");
+            if (cookie.isBlank()) {
+                cookie = root.path("cookies").asText("");
+            }
+            if (cookie.isBlank() && root.has("headers")) {
+                JsonNode headers = root.path("headers");
+                cookie = headers.path("cookie").asText("");
+            }
+            if (!cookie.isBlank()) {
+                return cookie;
+            }
+        } catch (Exception ignored) {
+        }
+        Matcher lineMatcher = RAW_COOKIE_LINE_PATTERN.matcher(raw);
+        if (lineMatcher.find()) {
+            String matched = cleanupCookieCandidate(lineMatcher.group(1));
+            if (!matched.isBlank()) {
+                return matched;
+            }
+        }
+        Matcher curlMatcher = CURL_COOKIE_HEADER_PATTERN.matcher(raw);
+        if (curlMatcher.find()) {
+            String matched = cleanupCookieCandidate(curlMatcher.group(1));
+            if (!matched.isBlank()) {
+                return matched;
+            }
+        }
+        String lower = raw.toLowerCase(Locale.ROOT);
+        int idx = lower.indexOf("cookie:");
+        if (idx >= 0) {
+            String tail = raw.substring(idx + "cookie:".length()).trim();
+            int lineBreak = tail.indexOf('\n');
+            String candidate = lineBreak >= 0 ? tail.substring(0, lineBreak).trim() : tail;
+            candidate = cleanupCookieCandidate(candidate);
+            if (!candidate.isBlank()) {
+                return candidate;
+            }
+        }
+        return cleanupCookieCandidate(raw);
+    }
+
+    private String normalizeCookieHeader(String cookieHeader) {
+        if (cookieHeader == null || cookieHeader.isBlank()) {
+            return "";
+        }
+        Map<String, String> map = new LinkedHashMap<>();
+        String[] parts = cookieHeader.split(";");
+        for (String part : parts) {
+            String trimmed = part == null ? "" : part.trim();
+            int idx = trimmed.indexOf('=');
+            if (idx <= 0) {
+                continue;
+            }
+            String key = trimmed.substring(0, idx).trim();
+            String value = trimmed.substring(idx + 1).trim();
+            if (!key.isBlank() && !value.isBlank()) {
+                map.put(key, value);
+            }
+        }
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, String> entry : map.entrySet()) {
+            if (sb.length() > 0) {
+                sb.append("; ");
+            }
+            sb.append(entry.getKey()).append("=").append(entry.getValue());
+        }
+        return sb.toString();
+    }
+
+    private String extractFirstCookie(String cookieHeader, String... names) {
+        if (cookieHeader == null || cookieHeader.isBlank() || names == null) {
+            return "";
+        }
+        for (String name : names) {
+            if (name == null || name.isBlank()) {
+                continue;
+            }
+            String marker = name + "=";
+            for (String part : cookieHeader.split(";")) {
+                String trimmed = part == null ? "" : part.trim();
+                if (trimmed.startsWith(marker)) {
+                    return trimmed.substring(marker.length()).trim();
+                }
+            }
+        }
+        return "";
+    }
+
+    private String cleanupCookieCandidate(String value) {
+        if (value == null) {
+            return "";
+        }
+        String candidate = value.trim();
+        if (candidate.startsWith("'") && candidate.endsWith("'") && candidate.length() > 1) {
+            candidate = candidate.substring(1, candidate.length() - 1).trim();
+        }
+        if (candidate.startsWith("\"") && candidate.endsWith("\"") && candidate.length() > 1) {
+            candidate = candidate.substring(1, candidate.length() - 1).trim();
+        }
+        int headerIdx = indexOfHeaderSwitch(candidate);
+        if (headerIdx > 0) {
+            candidate = candidate.substring(0, headerIdx).trim();
+        }
+        return candidate;
+    }
+
+    private int indexOfHeaderSwitch(String text) {
+        int idxH = text.indexOf(" -H ");
+        int idxHeader = text.indexOf(" --header ");
+        if (idxH < 0) {
+            return idxHeader;
+        }
+        if (idxHeader < 0) {
+            return idxH;
+        }
+        return Math.min(idxH, idxHeader);
+    }
+
+    private long calcGtk(String cookieHeader) {
+        String key = extractFirstCookie(cookieHeader, "p_skey", "skey", "qm_keyst", "qqmusic_key");
+        long hash = 5381L;
+        for (char c : key.toCharArray()) {
+            hash += (hash << 5) + c;
+        }
+        return hash & 0x7fffffffL;
+    }
+
+    private String toJson(Object value) {
+        try {
+            return MAPPER.writeValueAsString(value);
+        } catch (Exception ex) {
+            return "{}";
+        }
+    }
+
     private SearchDetailPage finalizeDetailJob(String cacheKey, DetailJob job, int page, int pageSize) {
         detailJobs.remove(cacheKey);
         try {
@@ -399,4 +670,7 @@ public final class SearchService {
             return future;
         }
     }
+
+
 }
+

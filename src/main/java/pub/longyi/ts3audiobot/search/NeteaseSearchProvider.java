@@ -160,7 +160,9 @@ public final class NeteaseSearchProvider implements SearchProvider {
                     durationMs,
                     null,
                     pageUrl,
-                    source()
+                    source(),
+                    null,
+                    ""
                 ));
             }
         }

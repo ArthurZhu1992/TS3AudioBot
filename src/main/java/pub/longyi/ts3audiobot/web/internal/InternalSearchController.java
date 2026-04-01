@@ -1,7 +1,12 @@
 package pub.longyi.ts3audiobot.web.internal;
 
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 import pub.longyi.ts3audiobot.search.SearchModels.LoginPoll;
 import pub.longyi.ts3audiobot.search.SearchModels.LoginStart;
 import pub.longyi.ts3audiobot.search.SearchModels.PlaylistPage;
@@ -12,6 +17,7 @@ import pub.longyi.ts3audiobot.search.SearchModels.SearchStatus;
 import pub.longyi.ts3audiobot.search.SearchService;
 
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/internal/search")
@@ -39,7 +45,7 @@ public final class InternalSearchController {
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
         } catch (Exception ex) {
-            return ResponseEntity.internalServerError().body("登录失败");
+            return ResponseEntity.internalServerError().body("\u767b\u5f55\u5931\u8d25");
         }
     }
 
@@ -49,7 +55,27 @@ public final class InternalSearchController {
             LoginPoll result = searchService.pollLogin(sessionId);
             return ResponseEntity.ok(result);
         } catch (Exception ex) {
-            return ResponseEntity.internalServerError().body("登录状态获取失败");
+            return ResponseEntity.internalServerError().body("\u83b7\u53d6\u767b\u5f55\u72b6\u6001\u5931\u8d25");
+        }
+    }
+
+    @PostMapping("/{source}/login/manual")
+    public ResponseEntity<?> importManualLogin(
+        @PathVariable String source,
+        @RequestParam(defaultValue = "global") String scope,
+        @RequestParam(required = false) String botId,
+        @RequestParam String payload
+    ) {
+        if (!"qq".equalsIgnoreCase(source)) {
+            return ResponseEntity.badRequest().body("\u5f53\u524d\u5e73\u53f0\u4e0d\u652f\u6301\u624b\u52a8\u5bfc\u5165");
+        }
+        try {
+            String message = searchService.importQqManualAuth(scope, botId, payload);
+            return ResponseEntity.ok(Map.of("message", message));
+        } catch (IllegalArgumentException ex) {
+            return ResponseEntity.badRequest().body(ex.getMessage());
+        } catch (Exception ex) {
+            return ResponseEntity.internalServerError().body("\u624b\u52a8\u767b\u5f55\u5bfc\u5165\u5931\u8d25");
         }
     }
 
@@ -69,7 +95,7 @@ public final class InternalSearchController {
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
         } catch (Exception ex) {
-            return ResponseEntity.internalServerError().body("搜索失败");
+            return ResponseEntity.internalServerError().body("\u641c\u7d22\u5931\u8d25");
         }
     }
 
@@ -89,7 +115,7 @@ public final class InternalSearchController {
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
         } catch (Exception ex) {
-            return ResponseEntity.internalServerError().body("搜索失败");
+            return ResponseEntity.internalServerError().body("\u641c\u7d22\u5931\u8d25");
         }
     }
 
@@ -108,7 +134,7 @@ public final class InternalSearchController {
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
         } catch (Exception ex) {
-            return ResponseEntity.internalServerError().body("获取歌单失败");
+            return ResponseEntity.internalServerError().body("\u83b7\u53d6\u6b4c\u5355\u5931\u8d25");
         }
     }
 
@@ -128,7 +154,7 @@ public final class InternalSearchController {
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());
         } catch (Exception ex) {
-            return ResponseEntity.internalServerError().body("获取歌单歌曲失败");
+            return ResponseEntity.internalServerError().body("\u83b7\u53d6\u6b4c\u5355\u6b4c\u66f2\u5931\u8d25");
         }
     }
 }

@@ -1,7 +1,9 @@
 package pub.longyi.ts3audiobot.resolver;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import pub.longyi.ts3audiobot.config.ConfigService;
+import pub.longyi.ts3audiobot.search.SearchAuthService;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -33,11 +35,33 @@ public final class ResolverRegistry {
      * @param configService 参数 configService
      */
     public ResolverRegistry(ConfigService configService) {
+        this(configService, null);
+    }
+
+    @Autowired
+    public ResolverRegistry(ConfigService configService, SearchAuthService searchAuthService) {
         var external = configService.get().resolvers.external;
         resolvers.add(new ExternalCliResolver("yt", external.yt));
         resolvers.add(new ExternalCliResolver("ytmusic", external.ytmusic));
         resolvers.add(new ExternalCliResolver("netease", external.netease));
-        resolvers.add(new ExternalCliResolver("qq", external.qq));
+        String qqCommand = selectQqCommand(external.qq, external.ytmusic, external.yt);
+        resolvers.add(new ExternalCliResolver("qq", qqCommand, () ->
+            searchAuthService == null
+                ? ""
+                : searchAuthService.resolveAuth("qq", "")
+                    .map(record -> record.cookie() == null ? "" : record.cookie())
+                    .orElse("")
+        ));
+    }
+
+    private String selectQqCommand(String qq, String ytmusic, String yt) {
+        if (qq != null && !qq.isBlank() && !"qqmusic".equalsIgnoreCase(qq.trim())) {
+            return qq;
+        }
+        if (ytmusic != null && !ytmusic.isBlank()) {
+            return ytmusic;
+        }
+        return yt == null ? "" : yt;
     }
 
 

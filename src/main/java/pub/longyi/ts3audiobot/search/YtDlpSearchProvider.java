@@ -120,7 +120,9 @@ public abstract class YtDlpSearchProvider implements SearchProvider {
                         durationMs,
                         playCount,
                         pageUrl,
-                        source
+                        source,
+                        null,
+                        ""
                     ));
                 }
                 index++;
