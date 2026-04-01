@@ -63,7 +63,7 @@ public final class QueueService {
     }
 
     QueueService(ConfigService configService, List<TrackResolver> repairResolvers) {
-        this.storePath = configService.getDataDir().resolve("queues.json");
+        this.storePath = configService.getQueueStorePath();
         this.repairResolvers = repairResolvers == null ? List.of() : List.copyOf(repairResolvers);
         this.objectMapper = new ObjectMapper()
 

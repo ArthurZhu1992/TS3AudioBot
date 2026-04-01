@@ -6,7 +6,12 @@ import pub.longyi.ts3audiobot.config.ConfigService;
 @Component
 public final class YtSearchProvider extends YtDlpSearchProvider {
     public YtSearchProvider(ConfigService configService) {
-        super("yt", configService.get().resolvers.external.yt);
+        super(
+            "yt",
+            configService.get().resolvers.external.yt,
+            configService.getYtDlpTempDir(),
+            configService.getYtDlpCacheDir()
+        );
     }
 
     @Override

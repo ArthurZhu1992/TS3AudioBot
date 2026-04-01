@@ -1,0 +1,56 @@
+spring:
+  thymeleaf:
+    cache: false
+
+server:
+  port: ${TS3AB_WEB_PORT:58913}
+
+management:
+  endpoints:
+    enabled-by-default: false
+
+ts3audiobot:
+  # Optional external TOML file. Keep default for backward compatibility.
+  config:
+    external-file: ${TS3AB_CONFIG:ts3Audio-config.toml}
+
+  # Core storage paths (relative paths are resolved against config directory).
+  configs:
+    bots-path: ${TS3AB_BOTS_PATH:bots}
+    db-path: ${TS3AB_DB:data/ts3audiobot.db}
+  storage:
+    data-dir: ${TS3AB_DATA_DIR:data}
+    queue-file: ${TS3AB_QUEUE_FILE:queues.json}
+
+  # Media cache directory served by /internal/media.
+  media:
+    dir: ${TS3AB_MEDIA_DIR:media}
+
+  # Runtime web config mirrored into internal ConfigService.
+  web:
+    port: ${TS3AB_WEB_PORT:58913}
+    hosts: ${TS3AB_WEB_HOSTS:*}
+    api-enabled: ${TS3AB_WEB_API_ENABLED:false}
+    ui-enabled: ${TS3AB_WEB_UI_ENABLED:true}
+
+  # Tool commands are Linux/Windows portable by default.
+  # Linux example:
+  # TS3AB_FFMPEG_PATH=/usr/bin/ffmpeg
+  # TS3AB_RESOLVER_YT=/usr/local/bin/yt-dlp
+  tools:
+    ffmpeg-path: ${TS3AB_FFMPEG_PATH:ffmpeg}
+    auto-download: ${TS3AB_AUTO_DOWNLOAD:true}
+  resolvers:
+    external:
+      yt: ${TS3AB_RESOLVER_YT:yt-dlp}
+      ytmusic: ${TS3AB_RESOLVER_YTMUSIC:yt-dlp}
+      netease: ${TS3AB_RESOLVER_NETEASE:netease-cloud-music}
+      qq: ${TS3AB_RESOLVER_QQ:qqmusic}
+
+  search:
+    auth-secret: ${TS3AB_SEARCH_AUTH_SECRET:}
+    cache-seconds: ${TS3AB_SEARCH_CACHE_SECONDS:120}
+
+  cache:
+    ytdlp-temp-dir: ${TS3AB_YTDLP_TEMP_DIR:data/yt-dlp-tmp}
+    ytdlp-cache-dir: ${TS3AB_YTDLP_CACHE_DIR:data/yt-dlp-cache}

@@ -46,7 +46,12 @@ public final class YtMusicSearchProvider extends YtDlpSearchProvider implements 
     private static final long DETAIL_BUDGET_MAX_MS = 90_000L;
 
     public YtMusicSearchProvider(ConfigService configService) {
-        super("ytmusic", configService.get().resolvers.external.ytmusic);
+        super(
+            "ytmusic",
+            configService.get().resolvers.external.ytmusic,
+            configService.getYtDlpTempDir(),
+            configService.getYtDlpCacheDir()
+        );
     }
 
     @Override

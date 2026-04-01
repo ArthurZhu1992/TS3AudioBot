@@ -2,6 +2,7 @@ package pub.longyi.ts3audiobot.config;
 
 import com.moandjiezana.toml.Toml;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 import pub.longyi.ts3audiobot.ts3.full.IdentityData;
 import pub.longyi.ts3audiobot.ts3.full.TsCrypt;
@@ -43,6 +44,10 @@ public final class ConfigService {
     private static final String DEFAULT_CONFIG_FILE = "ts3Audio-config.toml";
     private static final String DEFAULT_DB_FILE = "ts3audiobot.db";
     private static final String DEFAULT_BOTS_PATH = "bots";
+    private static final String DEFAULT_DATA_DIR = "data";
+    private static final String DEFAULT_QUEUE_FILE = "queues.json";
+    private static final String DEFAULT_YTDLP_TEMP_DIR = "data/yt-dlp-tmp";
+    private static final String DEFAULT_YTDLP_CACHE_DIR = "data/yt-dlp-cache";
     private static final String DEFAULT_FFMPEG_PATH = "ffmpeg";
     private static final String DEFAULT_YT = "yt-dlp";
     private static final String DEFAULT_NETEASE = "netease-cloud-music";
@@ -73,20 +78,40 @@ public final class ConfigService {
     private static final String KEY_RESOLVER_QQ = "resolvers.external.qq";
     private static final String KEY_SEARCH_SECRET = "search.auth_secret";
     private static final String KEY_SEARCH_CACHE_SECONDS = "search.cache_seconds";
+    private static final String KEY_STORAGE_DATA_DIR = "storage.data_dir";
+    private static final String KEY_STORAGE_QUEUE_FILE = "storage.queue_file";
+    private static final String KEY_CACHE_YTDLP_TEMP_DIR = "cache.ytdlp_temp_dir";
+    private static final String KEY_CACHE_YTDLP_CACHE_DIR = "cache.ytdlp_cache_dir";
 
     private static final Pattern INI_KEY_VALUE = Pattern.compile("^([^=]+)=(.*)$");
 
     private final AppConfig config;
     private final Path configPath;
     private final SqliteConfigStore configStore;
+    private final Path dataDir;
+    private final Path queueStorePath;
+    private final Path ytdlpTempDir;
+    private final Path ytdlpCacheDir;
 
     /**
      * 创建 ConfigService 实例。
      */
-    public ConfigService() {
-        this.configPath = resolveConfigPath();
-        Map<String, String> externalSettings = loadExternalSettings(configPath);
-        ensureDataDirExists(configPath);
+    public ConfigService(Environment environment) {
+        this.configPath = resolveConfigPath(environment);
+        Map<String, String> externalSettings = new LinkedHashMap<>(loadExternalSettings(configPath));
+        Map<String, String> springSettings = loadSpringSettings(environment);
+        if (!springSettings.isEmpty()) {
+            externalSettings.putAll(springSettings);
+            log.info("Loaded Spring YAML overrides for runtime tools/storage settings");
+        }
+        this.dataDir = resolveDataDir(configPath, externalSettings);
+        this.queueStorePath = resolveQueueStorePath(this.dataDir, externalSettings);
+        this.ytdlpTempDir = resolvePath(configPath, getSetting(externalSettings, KEY_CACHE_YTDLP_TEMP_DIR, DEFAULT_YTDLP_TEMP_DIR));
+        this.ytdlpCacheDir = resolvePath(configPath, getSetting(externalSettings, KEY_CACHE_YTDLP_CACHE_DIR, DEFAULT_YTDLP_CACHE_DIR));
+        ensureDirectoryExists(this.dataDir, "data");
+        ensureDirectoryExists(this.queueStorePath.getParent(), "queue");
+        ensureDirectoryExists(this.ytdlpTempDir, "yt-dlp temp");
+        ensureDirectoryExists(this.ytdlpCacheDir, "yt-dlp cache");
         Path dbPath = resolveDbPath(configPath, externalSettings);
         this.configStore = new SqliteConfigStore(dbPath);
         this.configStore.initialize();
@@ -149,11 +174,19 @@ public final class ConfigService {
      * @return 返回值
      */
     public Path getDataDir() {
-        Path baseDir = configPath.getParent();
-        if (baseDir == null) {
-            baseDir = Path.of(".");
-        }
-        return baseDir.resolve("data");
+        return dataDir;
+    }
+
+    public Path getQueueStorePath() {
+        return queueStorePath;
+    }
+
+    public Path getYtDlpTempDir() {
+        return ytdlpTempDir;
+    }
+
+    public Path getYtDlpCacheDir() {
+        return ytdlpCacheDir;
     }
 
     private AppConfig loadFromStore(Path configPath, Map<String, String> externalSettings) {
@@ -285,7 +318,11 @@ public final class ConfigService {
         return bots;
     }
 
-    private static Path resolveConfigPath() {
+    private static Path resolveConfigPath(Environment environment) {
+        String yamlPath = getSpringProperty(environment, "ts3audiobot.config.external-file");
+        if (yamlPath != null && !yamlPath.isBlank()) {
+            return Path.of(yamlPath.trim());
+        }
         String envPath = System.getenv("TS3AB_CONFIG");
         if (envPath != null && !envPath.isBlank()) {
             return Path.of(envPath);
@@ -341,6 +378,8 @@ public final class ConfigService {
             Map<String, String> settings = new LinkedHashMap<>();
             putIfNotBlank(settings, KEY_BOTS_PATH, toml.getString("configs.bots_path"));
             putIfNotBlank(settings, KEY_DB_PATH, toml.getString("configs.db_path"));
+            putIfNotBlank(settings, KEY_STORAGE_DATA_DIR, toml.getString("storage.data_dir"));
+            putIfNotBlank(settings, KEY_STORAGE_QUEUE_FILE, toml.getString("storage.queue_file"));
 
             Long port = toml.getLong("web.port");
             if (port != null) {
@@ -378,6 +417,8 @@ public final class ConfigService {
             if (cacheSeconds != null) {
                 settings.put(KEY_SEARCH_CACHE_SECONDS, Long.toString(cacheSeconds));
             }
+            putIfNotBlank(settings, KEY_CACHE_YTDLP_TEMP_DIR, toml.getString("cache.ytdlp_temp_dir"));
+            putIfNotBlank(settings, KEY_CACHE_YTDLP_CACHE_DIR, toml.getString("cache.ytdlp_cache_dir"));
 
             if (!settings.isEmpty()) {
                 log.info("Loaded external config from {}", configPath.toAbsolutePath());
@@ -387,6 +428,84 @@ public final class ConfigService {
             log.warn("Failed to read external config {}, using defaults", configPath, ex);
             return Map.of();
         }
+    }
+
+    private static Map<String, String> loadSpringSettings(Environment environment) {
+        if (environment == null) {
+            return Map.of();
+        }
+        Map<String, String> settings = new LinkedHashMap<>();
+        putSpring(settings, KEY_BOTS_PATH, environment, "ts3audiobot.configs.bots-path");
+        putSpring(settings, KEY_DB_PATH, environment, "ts3audiobot.configs.db-path");
+        putSpring(settings, KEY_WEB_PORT, environment, "ts3audiobot.web.port");
+        putSpring(settings, KEY_WEB_HOSTS, environment, "ts3audiobot.web.hosts");
+        putSpring(settings, KEY_WEB_API, environment, "ts3audiobot.web.api-enabled");
+        putSpring(settings, KEY_WEB_UI, environment, "ts3audiobot.web.ui-enabled");
+        putSpring(settings, KEY_FFMPEG, environment, "ts3audiobot.tools.ffmpeg-path");
+        putSpring(settings, KEY_TOOLS_AUTO_DOWNLOAD, environment, "ts3audiobot.tools.auto-download");
+        putSpring(settings, KEY_RESOLVER_YT, environment, "ts3audiobot.resolvers.external.yt");
+        putSpring(settings, KEY_RESOLVER_YTMUSIC, environment, "ts3audiobot.resolvers.external.ytmusic");
+        putSpring(settings, KEY_RESOLVER_NETEASE, environment, "ts3audiobot.resolvers.external.netease");
+        putSpring(settings, KEY_RESOLVER_QQ, environment, "ts3audiobot.resolvers.external.qq");
+        putSpring(settings, KEY_SEARCH_SECRET, environment, "ts3audiobot.search.auth-secret");
+        putSpring(settings, KEY_SEARCH_CACHE_SECONDS, environment, "ts3audiobot.search.cache-seconds");
+        putSpring(settings, KEY_STORAGE_DATA_DIR, environment, "ts3audiobot.storage.data-dir");
+        putSpring(settings, KEY_STORAGE_QUEUE_FILE, environment, "ts3audiobot.storage.queue-file");
+        putSpring(settings, KEY_CACHE_YTDLP_TEMP_DIR, environment, "ts3audiobot.cache.ytdlp-temp-dir");
+        putSpring(settings, KEY_CACHE_YTDLP_CACHE_DIR, environment, "ts3audiobot.cache.ytdlp-cache-dir");
+        if (!settings.containsKey(KEY_WEB_PORT)) {
+            putSpring(settings, KEY_WEB_PORT, environment, "server.port");
+        }
+        return settings;
+    }
+
+    private static void putSpring(Map<String, String> settings, String key, Environment environment, String propertyName) {
+        if (settings == null || key == null || environment == null || propertyName == null || propertyName.isBlank()) {
+            return;
+        }
+        String value = getSpringProperty(environment, propertyName);
+        if (value == null || value.isBlank()) {
+            return;
+        }
+        settings.put(key, value.trim());
+    }
+
+    private static String getSpringProperty(Environment environment, String name) {
+        if (environment == null || name == null || name.isBlank()) {
+            return null;
+        }
+        try {
+            return environment.getProperty(name);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static Path resolveDataDir(Path configPath, Map<String, String> settings) {
+        String raw = getSetting(settings, KEY_STORAGE_DATA_DIR, DEFAULT_DATA_DIR);
+        return resolvePath(configPath, raw);
+    }
+
+    private static Path resolveQueueStorePath(Path dataDir, Map<String, String> settings) {
+        String raw = getSetting(settings, KEY_STORAGE_QUEUE_FILE, DEFAULT_QUEUE_FILE);
+        Path candidate = Path.of(raw);
+        if (!candidate.isAbsolute()) {
+            candidate = dataDir.resolve(candidate).normalize();
+        }
+        return candidate;
+    }
+
+    private static Path resolvePath(Path configPath, String rawPath) {
+        String safeRaw = rawPath == null || rawPath.isBlank() ? "." : rawPath.trim();
+        Path candidate = Path.of(safeRaw);
+        if (candidate.isAbsolute()) {
+            return candidate.normalize();
+        }
+        Path baseDir = configPath.getParent();
+        if (baseDir == null) {
+            baseDir = Path.of(".");
+        }
+        return baseDir.resolve(candidate).normalize();
     }
 
     private static Path resolveJarFileDir() {
@@ -419,20 +538,15 @@ public final class ConfigService {
         return Boolean.toString(value);
     }
 
-    private static void ensureDataDirExists(Path configPath) {
-        Path baseDir = configPath.getParent();
-        if (baseDir == null) {
-            baseDir = Path.of(".");
-        }
-        Path dataDir = baseDir.resolve("data");
-        if (Files.isDirectory(dataDir)) {
+    private static void ensureDirectoryExists(Path path, String label) {
+        if (path == null || Files.isDirectory(path)) {
             return;
         }
         try {
-            Files.createDirectories(dataDir);
-            log.info("Created data directory {}", dataDir);
+            Files.createDirectories(path);
+            log.info("Created {} directory {}", label, path);
         } catch (IOException ex) {
-            log.warn("Failed to create data directory {}", dataDir, ex);
+            log.warn("Failed to create {} directory {}", label, path, ex);
         }
     }
 

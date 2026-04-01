@@ -23,10 +23,14 @@ public abstract class YtDlpSearchProvider implements SearchProvider {
 
     private final String source;
     private final String command;
+    private final Path tempDirPath;
+    private final Path cacheDirPath;
 
-    protected YtDlpSearchProvider(String source, String command) {
+    protected YtDlpSearchProvider(String source, String command, Path tempDirPath, Path cacheDirPath) {
         this.source = source;
         this.command = command;
+        this.tempDirPath = tempDirPath;
+        this.cacheDirPath = cacheDirPath;
     }
 
     @Override
@@ -215,7 +219,7 @@ public abstract class YtDlpSearchProvider implements SearchProvider {
     }
 
     protected Path tempDir() {
-        Path path = Paths.get("data", "yt-dlp-tmp");
+        Path path = tempDirPath == null ? Paths.get("data", "yt-dlp-tmp") : tempDirPath;
         try {
             Files.createDirectories(path);
             return path.toAbsolutePath();
@@ -226,7 +230,7 @@ public abstract class YtDlpSearchProvider implements SearchProvider {
     }
 
     protected Path cacheDir() {
-        Path path = Paths.get("data", "yt-dlp-cache");
+        Path path = cacheDirPath == null ? Paths.get("data", "yt-dlp-cache") : cacheDirPath;
         try {
             Files.createDirectories(path);
             return path.toAbsolutePath();
