@@ -54,6 +54,9 @@ public final class ConfigService {
     private static final String DEFAULT_QQ = "qqmusic";
     private static final String DEFAULT_SEARCH_SECRET = "";
     private static final int DEFAULT_SEARCH_CACHE_SECONDS = 120;
+    private static final boolean DEFAULT_MEDIA_CACHE_ENABLED = true;
+    private static final boolean DEFAULT_MEDIA_AUDIO_CACHE_ENABLED = true;
+    private static final int DEFAULT_MEDIA_MAX_SIZE_GB = 20;
     private static final int DEFAULT_WEB_PORT = 58913;
     private static final List<String> DEFAULT_HOSTS = List.of("*");
     private static final String DEFAULT_CLIENT_VERSION = "3.6.2 [Build: 1695203293]";
@@ -78,6 +81,9 @@ public final class ConfigService {
     private static final String KEY_RESOLVER_QQ = "resolvers.external.qq";
     private static final String KEY_SEARCH_SECRET = "search.auth_secret";
     private static final String KEY_SEARCH_CACHE_SECONDS = "search.cache_seconds";
+    private static final String KEY_MEDIA_CACHE_ENABLED = "media.cache_enabled";
+    private static final String KEY_MEDIA_AUDIO_CACHE_ENABLED = "media.audio_cache_enabled";
+    private static final String KEY_MEDIA_MAX_SIZE_GB = "media.max_size_gb";
     private static final String KEY_STORAGE_DATA_DIR = "storage.data_dir";
     private static final String KEY_STORAGE_QUEUE_FILE = "storage.queue_file";
     private static final String KEY_CACHE_YTDLP_TEMP_DIR = "cache.ytdlp_temp_dir";
@@ -216,6 +222,11 @@ public final class ConfigService {
             ),
             new AppConfig.Tools(resolved.ffmpegPath),
             new AppConfig.Search(resolved.searchSecret, resolved.searchCacheSeconds),
+            new AppConfig.Media(
+                resolved.mediaCacheEnabled,
+                resolved.mediaAudioCacheEnabled,
+                resolved.mediaMaxSizeGb
+            ),
             new AppConfig.Resolvers(new AppConfig.ExternalResolvers(
                 resolved.yt,
                 resolved.ytmusic,
@@ -235,6 +246,13 @@ public final class ConfigService {
         boolean autoDownload = parseBooleanSetting(settings, KEY_TOOLS_AUTO_DOWNLOAD, true);
         String searchSecret = getSetting(settings, KEY_SEARCH_SECRET, DEFAULT_SEARCH_SECRET);
         int searchCacheSeconds = parseIntSetting(settings, KEY_SEARCH_CACHE_SECONDS, DEFAULT_SEARCH_CACHE_SECONDS);
+        boolean mediaCacheEnabled = parseBooleanSetting(settings, KEY_MEDIA_CACHE_ENABLED, DEFAULT_MEDIA_CACHE_ENABLED);
+        boolean mediaAudioCacheEnabled = parseBooleanSetting(
+            settings,
+            KEY_MEDIA_AUDIO_CACHE_ENABLED,
+            DEFAULT_MEDIA_AUDIO_CACHE_ENABLED
+        );
+        int mediaMaxSizeGb = Math.max(1, parseIntSetting(settings, KEY_MEDIA_MAX_SIZE_GB, DEFAULT_MEDIA_MAX_SIZE_GB));
 
         String ffmpegPathRaw = getSetting(settings, KEY_FFMPEG, DEFAULT_FFMPEG_PATH);
         String ffmpegPath = FfmpegLocator.resolve(ffmpegPathRaw, configPath, autoDownload);
@@ -259,7 +277,10 @@ public final class ConfigService {
             netease,
             qq,
             searchSecret,
-            searchCacheSeconds
+            searchCacheSeconds,
+            mediaCacheEnabled,
+            mediaAudioCacheEnabled,
+            mediaMaxSizeGb
         );
     }
 
@@ -421,6 +442,12 @@ public final class ConfigService {
             if (cacheSeconds != null) {
                 settings.put(KEY_SEARCH_CACHE_SECONDS, Long.toString(cacheSeconds));
             }
+            putIfNotBlank(settings, KEY_MEDIA_CACHE_ENABLED, toBooleanString(toml.getBoolean("media.cache_enabled")));
+            putIfNotBlank(settings, KEY_MEDIA_AUDIO_CACHE_ENABLED, toBooleanString(toml.getBoolean("media.audio_cache_enabled")));
+            Long mediaMaxSizeGb = toml.getLong("media.max_size_gb");
+            if (mediaMaxSizeGb != null) {
+                settings.put(KEY_MEDIA_MAX_SIZE_GB, Long.toString(mediaMaxSizeGb));
+            }
             putIfNotBlank(settings, KEY_CACHE_YTDLP_TEMP_DIR, toml.getString("cache.ytdlp_temp_dir"));
             putIfNotBlank(settings, KEY_CACHE_YTDLP_CACHE_DIR, toml.getString("cache.ytdlp_cache_dir"));
 
@@ -453,6 +480,9 @@ public final class ConfigService {
         putSpring(settings, KEY_RESOLVER_QQ, environment, "ts3audiobot.resolvers.external.qq");
         putSpring(settings, KEY_SEARCH_SECRET, environment, "ts3audiobot.search.auth-secret");
         putSpring(settings, KEY_SEARCH_CACHE_SECONDS, environment, "ts3audiobot.search.cache-seconds");
+        putSpring(settings, KEY_MEDIA_CACHE_ENABLED, environment, "ts3audiobot.media.cache-enabled");
+        putSpring(settings, KEY_MEDIA_AUDIO_CACHE_ENABLED, environment, "ts3audiobot.media.audio-cache-enabled");
+        putSpring(settings, KEY_MEDIA_MAX_SIZE_GB, environment, "ts3audiobot.media.max-size-gb");
         putSpring(settings, KEY_STORAGE_DATA_DIR, environment, "ts3audiobot.storage.data-dir");
         putSpring(settings, KEY_STORAGE_QUEUE_FILE, environment, "ts3audiobot.storage.queue-file");
         putSpring(settings, KEY_CACHE_YTDLP_TEMP_DIR, environment, "ts3audiobot.cache.ytdlp-temp-dir");
@@ -841,7 +871,10 @@ public final class ConfigService {
         String netease,
         String qq,
         String searchSecret,
-        int searchCacheSeconds
+        int searchCacheSeconds,
+        boolean mediaCacheEnabled,
+        boolean mediaAudioCacheEnabled,
+        int mediaMaxSizeGb
     ) {
     }
 

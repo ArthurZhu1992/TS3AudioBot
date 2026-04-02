@@ -523,7 +523,10 @@ public final class BotInstance {
             return null;
         }
         Track prepared = trackMediaService.prepareForPlayback(track);
-        if (!prepared.equals(track) && itemId != null && !itemId.isBlank()) {
+        if (itemId != null
+            && !itemId.isBlank()
+            && !prepared.equals(track)
+            && trackMediaService.shouldPersistPreparedTrack(track, prepared)) {
             queueService.updateTrack(id, playlistId, itemId, prepared);
         }
         return prepared;

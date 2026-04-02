@@ -66,6 +66,11 @@ yt = "yt-dlp"
 ytmusic = "yt-dlp"
 netease = "netease-cloud-music"
 qq = "qqmusic"
+
+[media]
+cache_enabled = true
+audio_cache_enabled = true
+max_size_gb = 20
 ```
 说明：
 - 所有字段都可选，空值或非法值会自动回退到内置默认
@@ -103,6 +108,9 @@ java -jar build/libs/TS3AudioBot-0.0.1-SNAPSHOT.jar
 - `web.interface.enabled`：Web UI 开关
 - `tools.ffmpeg_path`：FFmpeg 路径，`ffmpeg` 或 `auto` 会尝试自动解析
 - `resolvers.external.*`：外部解析器命令路径
+- `media.cache_enabled`：媒体缓存总开关（封面 + 音频）
+- `media.audio_cache_enabled`：音频落盘缓存开关（关闭后仅缓存封面）
+- `media.max_size_gb`：媒体缓存容量上限（GB，超限按最近最少使用清理未引用文件）
 
 ### 数据与存储
 - 机器人/管理员配置：`data/ts3audiobot.db`
@@ -111,6 +119,11 @@ java -jar build/libs/TS3AudioBot-0.0.1-SNAPSHOT.jar
 ### 常见问题
 - **FFmpeg 找不到**：确认系统 PATH，或将可执行文件放入 `ffmpeg/`
 - **yt-dlp 不可用**：安装并加入 PATH，或在配置文件中指定绝对路径
+
+### 合规说明（重要）
+- 本项目仅用于你有合法授权的音频内容（例如自有内容、已获许可内容、平台允许的个人使用场景）。
+- 启用 `media.audio_cache_enabled=true` 会将播放音频缓存到本地，请自行确认符合你所在地区法律法规及目标平台服务条款。
+- 你应对自身使用行为与缓存内容承担全部责任；项目维护者不对违规使用导致的任何后果负责。
 
 ### 开发规范与协作
 - 欢迎参与开发与改进！

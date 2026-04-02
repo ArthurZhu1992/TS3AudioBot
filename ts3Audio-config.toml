@@ -27,3 +27,8 @@ qq = "qqmusic"
 [search]
 auth_secret = "CHANGE_ME"
 cache_seconds = 120
+
+[media]
+cache_enabled = true
+audio_cache_enabled = true
+max_size_gb = 20

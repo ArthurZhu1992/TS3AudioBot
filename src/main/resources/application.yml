@@ -33,9 +33,11 @@ ts3audiobot:
     data-dir: ${TS3AB_DATA_DIR:data}
     queue-file: ${TS3AB_QUEUE_FILE:queues.json}
 
-  # Media cache directory served by /internal/media.
+  # Media cache policy (audio + cover cache stored under storage.data-dir).
   media:
-    dir: ${TS3AB_MEDIA_DIR:media}
+    cache-enabled: ${TS3AB_MEDIA_CACHE_ENABLED:true}
+    audio-cache-enabled: ${TS3AB_MEDIA_AUDIO_CACHE_ENABLED:true}
+    max-size-gb: ${TS3AB_MEDIA_MAX_SIZE_GB:20}
 
   # Runtime web config mirrored into internal ConfigService.
   web:

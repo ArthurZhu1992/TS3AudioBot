@@ -173,7 +173,10 @@ public final class InternalQueueController {
      */
     @PostMapping("/{botId}/clear")
     public void clear(@PathVariable String botId) {
-        deleteQueueMedia(queueService.rawList(botId));
+        List<QueueItem> items = queueService.rawList(botId);
+        pausePlaybackForDeletionIfNeeded(botId, items);
+        releasePlaybackForItems(botId, items);
+        deleteQueueMedia(items);
         queueService.clear(botId);
     }
 
@@ -185,7 +188,10 @@ public final class InternalQueueController {
      */
     @PostMapping("/{botId}/{playlistId}/clear")
     public void clearByPlaylist(@PathVariable String botId, @PathVariable String playlistId) {
-        deleteQueueMedia(queueService.rawList(botId, playlistId));
+        List<QueueItem> items = queueService.rawList(botId, playlistId);
+        pausePlaybackForDeletionIfNeeded(botId, items);
+        releasePlaybackForItems(botId, items);
+        deleteQueueMedia(items);
         queueService.clear(botId, playlistId);
     }
 
@@ -204,6 +210,7 @@ public final class InternalQueueController {
         @PathVariable String itemId
     ) {
         Track targetTrack = findTrack(botId, playlistId, itemId);
+        pausePlaybackForDeletionIfNeeded(botId, playlistId, itemId);
         boolean removed = queueService.removeItem(botId, playlistId, itemId);
         if (!removed) {
             return ResponseEntity.badRequest().body("Queue item delete failed");
@@ -285,7 +292,10 @@ public final class InternalQueueController {
      */
     @DeleteMapping("/{botId}/playlists/{playlistId}")
     public ResponseEntity<?> deletePlaylist(@PathVariable String botId, @PathVariable String playlistId) {
-        deleteQueueMedia(queueService.rawList(botId, playlistId));
+        List<QueueItem> items = queueService.rawList(botId, playlistId);
+        pausePlaybackForDeletionIfNeeded(botId, items);
+        releasePlaybackForItems(botId, items);
+        deleteQueueMedia(items);
         boolean removed = queueService.removePlaylist(botId, playlistId);
         if (!removed) {
             return ResponseEntity.badRequest().body("Playlist delete failed");
@@ -644,6 +654,56 @@ public final class InternalQueueController {
             return;
         }
         bot.handleRemovedQueueItem(playlistId, itemId);
+    }
+
+    private void releasePlaybackForItems(String botId, List<QueueItem> items) {
+        if (items == null) {
+            return;
+        }
+        for (QueueItem item : items) {
+            if (item != null) {
+                releaseCurrentPlayback(botId, item.playlistId(), item.id());
+            }
+        }
+    }
+
+    private void pausePlaybackForDeletionIfNeeded(String botId, String playlistId, String itemId) {
+        if (botManager == null) {
+            return;
+        }
+        BotInstance bot = botManager.get(botId);
+        if (bot == null) {
+            return;
+        }
+        if (!itemId.equals(bot.currentItemId())) {
+            return;
+        }
+        if (playlistId != null && !playlistId.equals(bot.currentPlaylistId())) {
+            return;
+        }
+        bot.pausePlayback();
+    }
+
+    private void pausePlaybackForDeletionIfNeeded(String botId, List<QueueItem> items) {
+        if (botManager == null || items == null || items.isEmpty()) {
+            return;
+        }
+        BotInstance bot = botManager.get(botId);
+        if (bot == null || bot.currentItemId() == null) {
+            return;
+        }
+        String currentItemId = bot.currentItemId();
+        String currentPlaylistId = bot.currentPlaylistId();
+        for (QueueItem item : items) {
+            if (item == null) {
+                continue;
+            }
+            if (currentItemId.equals(item.id())
+                && (currentPlaylistId == null || currentPlaylistId.equals(item.playlistId()))) {
+                bot.pausePlayback();
+                return;
+            }
+        }
     }
 
 

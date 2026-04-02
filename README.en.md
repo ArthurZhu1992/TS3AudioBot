@@ -64,6 +64,11 @@ yt = "yt-dlp"
 ytmusic = "yt-dlp"
 netease = "netease-cloud-music"
 qq = "qqmusic"
+
+[media]
+cache_enabled = true
+audio_cache_enabled = true
+max_size_gb = 20
 ```
 Notes:
 - All keys are optional; invalid values fall back to built-in defaults
@@ -101,6 +106,9 @@ Open the web console. On first run you will be redirected to `/setup` to create 
 - `web.interface.enabled`: web UI toggle
 - `tools.ffmpeg_path`: FFmpeg path (`ffmpeg` or `auto` tries auto resolution)
 - `resolvers.external.*`: resolver command paths
+- `media.cache_enabled`: global media cache switch (cover + audio)
+- `media.audio_cache_enabled`: enable persisted audio cache (disable to keep only cover cache)
+- `media.max_size_gb`: media cache capacity limit in GB (LRU cleanup for unreferenced files)
 
 ### Data Storage
 - Bots/Admin: `data/ts3audiobot.db`
@@ -109,6 +117,11 @@ Open the web console. On first run you will be redirected to `/setup` to create 
 ### Troubleshooting
 - **FFmpeg not found**: ensure it is in PATH or under `ffmpeg/`
 - **yt-dlp not found**: install and add to PATH or set absolute path
+
+### Compliance Notice (Important)
+- Use this project only with audio content you are legally authorized to access.
+- Enabling `media.audio_cache_enabled=true` persists playback audio on local disk.
+- You are solely responsible for complying with applicable laws and platform terms of service.
 
 ### Contribution & Standards
 - Contributions are welcome!

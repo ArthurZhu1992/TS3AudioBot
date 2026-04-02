@@ -27,6 +27,7 @@ public final class AppConfig {
     public final Web web;
     public final Tools tools;
     public final Search search;
+    public final Media media;
     public final Resolvers resolvers;
     public final List<BotConfig> bots;
 
@@ -39,11 +40,20 @@ public final class AppConfig {
      * @param resolvers 参数 resolvers
      * @param bots 参数 bots
      */
-    public AppConfig(Configs configs, Web web, Tools tools, Search search, Resolvers resolvers, List<BotConfig> bots) {
+    public AppConfig(
+        Configs configs,
+        Web web,
+        Tools tools,
+        Search search,
+        Media media,
+        Resolvers resolvers,
+        List<BotConfig> bots
+    ) {
         this.configs = configs;
         this.web = web;
         this.tools = tools;
         this.search = search;
+        this.media = media;
         this.resolvers = resolvers;
         this.bots = bots == null ? new ArrayList<>() : new ArrayList<>(bots);
     }
@@ -192,6 +202,32 @@ public final class AppConfig {
         public Search(String authSecret, int cacheSeconds) {
             this.authSecret = authSecret;
             this.cacheSeconds = cacheSeconds;
+        }
+    }
+
+
+    /**
+     * Media 相关功能。
+     *
+     * <p>职责：保存媒体缓存相关配置。</p>
+     * <p>线程安全：无显式保证。</p>
+     * <p>约束：调用方需遵守方法契约。</p>
+     */
+    public static final class Media {
+        public final boolean cacheEnabled;
+        public final boolean audioCacheEnabled;
+        public final int maxSizeGb;
+
+        /**
+         * 创建 Media 实例。
+         * @param cacheEnabled 参数 cacheEnabled
+         * @param audioCacheEnabled 参数 audioCacheEnabled
+         * @param maxSizeGb 参数 maxSizeGb
+         */
+        public Media(boolean cacheEnabled, boolean audioCacheEnabled, int maxSizeGb) {
+            this.cacheEnabled = cacheEnabled;
+            this.audioCacheEnabled = audioCacheEnabled;
+            this.maxSizeGb = maxSizeGb;
         }
     }
 
