@@ -836,10 +836,11 @@
                 <div id="search-login-manual-section" class="d-none">
                     <div id="search-login-manual-status" class="text-muted small mb-2">QQ音乐登录改为手动导入模式。</div>
                     <ol class="small mb-3" style="padding-left: 1.1rem;">
-                        <li class="mb-1">点击「打开QQ音乐网页登录页」并完成QQ登录。</li>
-                        <li class="mb-1">登录完成后按 F12，切换到 Console，粘贴脚本并回车。</li>
-                        <li class="mb-1">脚本会自动复制登录信息，回到这里粘贴并提交。</li>
-                        <li class="mb-1">若提示缺少 key，请在 F12 的 Network 里找 y.qq.com 请求，复制请求头里的 <code>cookie:</code> 整行再提交。</li>
+                        <li class="mb-1">点击「打开QQ音乐网页登录页」，在新页面右上角点“登录”并完成扫码。</li>
+                        <li class="mb-1">登录后按 F12 打开开发者工具，切到 Console。</li>
+                        <li class="mb-1">若 Console 提示“请在下方输入‘允许粘贴’”，先输入 <code>允许粘贴</code> 并按 Enter。</li>
+                        <li class="mb-1">把脚本粘贴到 Console 并回车，脚本会自动复制登录信息。</li>
+                        <li class="mb-1">回到这里粘贴并提交；若提示缺少 key，请在 F12 的 Network 中找到 y.qq.com 请求，复制请求头里的 <code>cookie:</code> 整行再提交。</li>
                     </ol>
                     <div class="d-flex flex-wrap gap-2 mb-3">
                         <button id="qq-open-login-page" class="btn btn-outline-light btn-sm" type="button">打开QQ音乐网页登录页</button>
@@ -2269,7 +2270,7 @@
     function copyQqManualConsoleScript() {
         copyTextToClipboard(buildQqManualConsoleScript())
             .then(() => {
-                showNotification('F12脚本已复制，去 QQ 音乐页面执行', 'success');
+                showNotification('F12脚本已复制；若 Console 禁止粘贴，请先输入“允许粘贴”', 'success');
             })
             .catch(() => {
                 showNotification('脚本复制失败，请手动复制', 'warning');
@@ -2278,7 +2279,7 @@
 
     function openQqWebLoginPage() {
         window.open(QQ_WEB_LOGIN_URL, '_blank', 'noopener');
-        $searchLoginManualStatus.text('已打开 y.qq.com，请点击页面右上角“登录”并完成扫码。');
+        $searchLoginManualStatus.text('已打开 y.qq.com，请先登录；若 Console 禁止粘贴，请先输入“允许粘贴”再执行脚本。');
     }
 
     function startSearchLogin() {

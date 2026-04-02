@@ -7,9 +7,11 @@ import pub.longyi.ts3audiobot.util.IdGenerator;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
@@ -335,6 +337,8 @@ public final class ExternalCliResolver implements TrackResolver {
         return lower.contains("ytimg.com")
             || lower.contains("ggpht.com")
             || lower.contains("/vi/")
+            || lower.contains("y.qq.com/music/photo_new/")
+            || lower.contains("y.gtimg.cn/music/photo_new/")
             || lower.matches("^https?://.+\\.(jpg|jpeg|png|webp)(\\?.*)?$");
     }
 
@@ -344,7 +348,27 @@ public final class ExternalCliResolver implements TrackResolver {
         }
         String trimmed = value.trim();
         if (trimmed.startsWith("//")) {
-            return "https:" + trimmed;
+            trimmed = "https:" + trimmed;
+        } else if (trimmed.regionMatches(true, 0, "http://", 0, 7)) {
+            trimmed = "https://" + trimmed.substring(7);
+        }
+        try {
+            URI uri = URI.create(trimmed);
+            String host = uri.getHost();
+            String path = uri.getPath();
+            if (host != null
+                && host.toLowerCase(Locale.ROOT).endsWith("y.qq.com")
+                && path != null
+                && path.startsWith("/music/photo_new/")) {
+                StringBuilder rewritten = new StringBuilder("https://y.gtimg.cn").append(path);
+                String query = uri.getQuery();
+                if (query != null && !query.isBlank()) {
+                    rewritten.append("?").append(query);
+                }
+                return rewritten.toString();
+            }
+        } catch (Exception ignored) {
+            return trimmed;
         }
         return trimmed;
     }

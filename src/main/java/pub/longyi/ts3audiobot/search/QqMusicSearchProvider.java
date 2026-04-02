@@ -270,18 +270,7 @@ public final class QqMusicSearchProvider implements SearchProvider {
                 );
                 String title = extractSongTitle(item, request.query());
                 String artist = extractSongArtist(item);
-                String albummid = firstText(
-                    item,
-                    "albummid",
-                    "album.mid",
-                    "songInfo.albummid",
-                    "songInfo.album.mid",
-                    "songinfo.albummid",
-                    "songinfo.album.mid"
-                );
-                String cover = albummid.isBlank()
-                    ? ""
-                    : "https://y.qq.com/music/photo_new/T002R300x300M000" + albummid + ".jpg?max_age=2592000";
+                String cover = resolveSongCover(item);
                 long durationMs = extractSongDurationMs(item);
                 Long playCount = null;
                 if (item.has("playcnt")) {
@@ -331,7 +320,7 @@ public final class QqMusicSearchProvider implements SearchProvider {
             for (JsonNode item : list) {
                 String id = item.path("dissid").asText("");
                 String name = item.path("dissname").asText("");
-                String cover = item.path("imgurl").asText("");
+                String cover = normalizeQqCoverUrl(item.path("imgurl").asText(""));
                 int trackCount = item.path("song_cnt").asInt(0);
                 long playCount = item.path("visitnum").asLong(0);
                 items.add(new PlaylistItem(
@@ -375,18 +364,7 @@ public final class QqMusicSearchProvider implements SearchProvider {
                     );
                     String title = extractSongTitle(item, "");
                     String artist = extractSongArtist(item);
-                    String albummid = firstText(
-                        item,
-                        "albummid",
-                        "album.mid",
-                        "songInfo.albummid",
-                        "songInfo.album.mid",
-                        "songinfo.albummid",
-                        "songinfo.album.mid"
-                    );
-                    String cover = albummid.isBlank()
-                        ? ""
-                        : "https://y.qq.com/music/photo_new/T002R300x300M000" + albummid + ".jpg?max_age=2592000";
+                    String cover = resolveSongCover(item);
                     long durationMs = extractSongDurationMs(item);
                     String pageUrl = mid.isBlank() ? "" : "https://y.qq.com/n/ryqq/songDetail/" + mid;
                     String uid = "qq:" + mid;
@@ -867,6 +845,85 @@ public final class QqMusicSearchProvider implements SearchProvider {
             title = fallback == null ? "" : fallback.trim();
         }
         return title;
+    }
+
+    private String resolveSongCover(JsonNode item) {
+        String directCover = firstText(
+            item,
+            "cover",
+            "cover_url",
+            "coverUrl",
+            "img",
+            "imgurl",
+            "album.pic",
+            "album.picUrl",
+            "album.picurl",
+            "songInfo.cover",
+            "songInfo.coverUrl",
+            "songInfo.album.pic",
+            "songInfo.album.picUrl",
+            "songInfo.album.picurl",
+            "songinfo.cover",
+            "songinfo.coverUrl",
+            "songinfo.album.pic",
+            "songinfo.album.picUrl",
+            "songinfo.album.picurl"
+        );
+        if (!directCover.isBlank()) {
+            return normalizeQqCoverUrl(directCover);
+        }
+        String albumMid = firstText(
+            item,
+            "albummid",
+            "albumMid",
+            "album_mid",
+            "album.mid",
+            "songInfo.albummid",
+            "songInfo.albumMid",
+            "songInfo.album_mid",
+            "songInfo.album.mid",
+            "songinfo.albummid",
+            "songinfo.albumMid",
+            "songinfo.album_mid",
+            "songinfo.album.mid"
+        );
+        return albumMid.isBlank()
+            ? ""
+            : "https://y.gtimg.cn/music/photo_new/T002R300x300M000" + albumMid + ".jpg?max_age=2592000";
+    }
+
+    private String normalizeQqCoverUrl(String coverUrl) {
+        if (coverUrl == null) {
+            return "";
+        }
+        String normalized = coverUrl.trim();
+        if (normalized.isEmpty()) {
+            return "";
+        }
+        if (normalized.startsWith("//")) {
+            normalized = "https:" + normalized;
+        } else if (normalized.regionMatches(true, 0, "http://", 0, 7)) {
+            normalized = "https://" + normalized.substring(7);
+        }
+        try {
+            URI uri = URI.create(normalized);
+            String host = uri.getHost();
+            String path = uri.getPath();
+            if (host != null
+                && host.toLowerCase(Locale.ROOT).endsWith("y.qq.com")
+                && path != null
+                && path.startsWith("/music/photo_new/")) {
+                StringBuilder rewritten = new StringBuilder("https://y.gtimg.cn").append(path);
+                String query = uri.getQuery();
+                if (query != null && !query.isBlank()) {
+                    rewritten.append("?").append(query);
+                }
+                return rewritten.toString();
+            }
+        } catch (Exception ignored) {
+            // Keep original value when URL parsing fails.
+        }
+        return normalized;
     }
 
     private String extractSongArtist(JsonNode item) {
