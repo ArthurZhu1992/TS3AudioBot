@@ -124,7 +124,7 @@ public final class InternalQueueController {
         }
         if (items.size() == 1) {
             AddItemRequest item = items.get(0);
-            Optional<Track> track = resolveTrack(item.query());
+            Optional<Track> track = resolveTrack(item);
             if (track.isEmpty()) {
                 return ResponseEntity.badRequest().body("No resolver could handle the query");
             }
@@ -155,7 +155,7 @@ public final class InternalQueueController {
         }
         if (items.size() == 1) {
             AddItemRequest item = items.get(0);
-            Optional<Track> track = resolveTrack(item.query());
+            Optional<Track> track = resolveTrack(item);
             if (track.isEmpty()) {
                 return ResponseEntity.badRequest().body("No resolver could handle the query");
             }
@@ -305,13 +305,87 @@ public final class InternalQueueController {
     }
 
     private Optional<Track> resolveTrack(String query) {
+        return resolveTrack(new AddItemRequest(query, null, null, null, null, null, null));
+    }
+
+    private Optional<Track> resolveTrack(AddItemRequest item) {
+        String query = item == null ? null : item.query();
+        if (query == null || query.isBlank()) {
+            return Optional.empty();
+        }
+        String preferredSource = preferredResolverSource(item);
+        if (!preferredSource.isBlank()) {
+            log.info("Prefer resolver source={} query={}", preferredSource, query);
+        }
+        if (!preferredSource.isBlank()) {
+            for (TrackResolver resolver : resolverRegistry.list()) {
+                if (!equalsIgnoreCase(canonicalResolverSource(resolver == null ? null : resolver.sourceType()), preferredSource)) {
+                    continue;
+                }
+                Optional<Track> resolved = resolver.resolve(query);
+                if (resolved.isPresent()) {
+                    log.info("Resolved query via preferred resolver source={} query={}", resolver.sourceType(), query);
+                    return resolved;
+                }
+            }
+        }
         for (TrackResolver resolver : resolverRegistry.list()) {
+            if (!preferredSource.isBlank() && equalsIgnoreCase(canonicalResolverSource(resolver == null ? null : resolver.sourceType()), preferredSource)) {
+                continue;
+            }
             Optional<Track> resolved = resolver.resolve(query);
             if (resolved.isPresent()) {
+                log.info("Resolved query via fallback resolver source={} query={}", resolver.sourceType(), query);
                 return resolved;
             }
         }
         return Optional.empty();
+    }
+
+    private String preferredResolverSource(AddItemRequest item) {
+        if (item == null) {
+            return "";
+        }
+        String explicit = canonicalResolverSource(item.source());
+        if (!explicit.isBlank()) {
+            return explicit;
+        }
+        String query = item.query();
+        if (query == null || query.isBlank()) {
+            return "";
+        }
+        String host = extractHost(query);
+        if (host == null || host.isBlank()) {
+            return "";
+        }
+        String lower = host.toLowerCase();
+        if (lower.startsWith("music.youtube.com")) {
+            return "ytmusic";
+        }
+        if (lower.contains("youtube.com") || lower.equals("youtu.be") || lower.endsWith(".youtu.be")) {
+            return "yt";
+        }
+        if (lower.startsWith("music.163.com") || lower.endsWith(".music.163.com")) {
+            return "netease";
+        }
+        if (lower.startsWith("y.qq.com") || lower.endsWith(".y.qq.com")) {
+            return "qq";
+        }
+        return "";
+    }
+
+    private String canonicalResolverSource(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        String lower = value.trim().toLowerCase();
+        return switch (lower) {
+            case "yt", "youtube" -> "yt";
+            case "ytmusic", "youtube music" -> "ytmusic";
+            case "netease", "netease music", "网易云音乐" -> "netease";
+            case "qq", "qqmusic", "qq music", "qq音乐" -> "qq";
+            default -> lower;
+        };
     }
 
     private Track applyWebsiteSourceType(String query, Track track) {
@@ -375,7 +449,7 @@ public final class InternalQueueController {
             if (query == null || query.isBlank()) {
                 continue;
             }
-            Optional<Track> track = resolveTrack(query);
+            Optional<Track> track = resolveTrack(item);
             if (track.isEmpty()) {
                 failed.add(new AddFailure(query, "No resolver could handle the query"));
                 continue;
@@ -433,6 +507,13 @@ public final class InternalQueueController {
             }
         }
         return "";
+    }
+
+    private boolean equalsIgnoreCase(String left, String right) {
+        if (left == null || right == null) {
+            return false;
+        }
+        return left.equalsIgnoreCase(right);
     }
 
     private long safeDuration(Long durationMs) {

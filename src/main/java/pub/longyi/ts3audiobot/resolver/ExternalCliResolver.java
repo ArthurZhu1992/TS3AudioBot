@@ -130,9 +130,10 @@ public final class ExternalCliResolver implements TrackResolver {
             args.add("--get-thumbnail");
             args.add("-f");
             args.add("bestaudio");
-            if (shouldAttachQqAuth(queryArg)) {
+            String referer = resolveAuthReferer(queryArg);
+            if (referer != null && !referer.isBlank()) {
                 args.add("--referer");
-                args.add("https://y.qq.com/");
+                args.add(referer);
                 String cookie = resolveCookie();
                 if (!cookie.isBlank()) {
                     args.add("--add-headers");
@@ -165,17 +166,23 @@ public final class ExternalCliResolver implements TrackResolver {
         if (isHttpUrl(raw)) {
             return raw;
         }
-        if (!"qq".equalsIgnoreCase(sourceType)) {
+        if (!"qq".equalsIgnoreCase(sourceType) && !"netease".equalsIgnoreCase(sourceType)) {
             return raw;
+        }
+        if ("netease".equalsIgnoreCase(sourceType) && raw.matches("^\\d{4,}$")) {
+            return "https://music.163.com/song?id=" + raw;
         }
         return "https://y.qq.com/n/ryqq/songDetail/" + raw;
     }
 
-    private boolean shouldAttachQqAuth(String query) {
-        if ("qq".equalsIgnoreCase(sourceType)) {
-            return true;
+    private String resolveAuthReferer(String query) {
+        if ("qq".equalsIgnoreCase(sourceType) || isQqUrl(query)) {
+            return "https://y.qq.com/";
         }
-        return isQqUrl(query);
+        if ("netease".equalsIgnoreCase(sourceType) || isNeteaseUrl(query)) {
+            return "https://music.163.com/";
+        }
+        return "";
     }
 
     private boolean isQqUrl(String query) {
@@ -187,6 +194,16 @@ public final class ExternalCliResolver implements TrackResolver {
             || lower.contains("qqmusic.qq.com")
             || lower.contains("c.y.qq.com")
             || lower.contains("u.y.qq.com");
+    }
+
+    private boolean isNeteaseUrl(String query) {
+        if (query == null) {
+            return false;
+        }
+        String lower = query.trim().toLowerCase();
+        return lower.contains("music.163.com")
+            || lower.contains("musicapi.163.com")
+            || lower.contains("interface3.music.163.com");
     }
 
     private boolean isHttpUrl(String value) {

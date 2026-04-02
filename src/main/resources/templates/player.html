@@ -257,11 +257,19 @@
         }
 
         .search-title {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            min-width: 0;
+            color: #f8fafc;
             font-weight: 600;
+        }
+
+        .search-title-text {
+            min-width: 0;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
-            color: #f8fafc;
         }
 
         .search-sub {
@@ -281,29 +289,80 @@
         .search-vip-badge {
             margin-left: 6px;
             font-size: 0.72rem;
-            padding: 0.12rem 0.4rem;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.26rem;
+            padding: 0.15rem 0.45rem;
             border-radius: 999px;
             border: 1px solid transparent;
             vertical-align: middle;
             cursor: help;
+            letter-spacing: 0.01em;
         }
 
-        .search-vip-badge.need {
-            color: #fca5a5;
-            border-color: rgba(252, 165, 165, 0.5);
-            background: rgba(185, 28, 28, 0.2);
+        .search-vip-badge.playable {
+            color: #bbf7d0;
+            border-color: rgba(74, 222, 128, 0.55);
+            background: linear-gradient(135deg, rgba(21, 128, 61, 0.34), rgba(22, 163, 74, 0.16));
         }
 
-        .search-vip-badge.free {
-            color: #86efac;
-            border-color: rgba(134, 239, 172, 0.5);
-            background: rgba(21, 128, 61, 0.2);
+        .search-vip-badge.vip-playable {
+            color: #dcfce7;
+            border-color: rgba(253, 224, 71, 0.48);
+            box-shadow: 0 0 0 1px rgba(253, 224, 71, 0.24) inset;
+        }
+
+        .search-vip-badge.blocked {
+            color: #fed7aa;
+            border-color: rgba(251, 113, 133, 0.58);
+            background: linear-gradient(135deg, rgba(194, 65, 12, 0.38), rgba(190, 24, 93, 0.28));
+        }
+
+        .search-vip-badge.warn {
+            color: #fde68a;
+            border-color: rgba(251, 191, 36, 0.58);
+            background: rgba(161, 98, 7, 0.26);
         }
 
         .search-vip-badge.unknown {
+            color: #e4e4e7;
+            border-color: rgba(212, 212, 216, 0.48);
+            background: rgba(113, 113, 122, 0.2);
+        }
+
+        .search-vip-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .search-vip-legend-item {
+            font-size: 0.75rem;
+            border-radius: 999px;
+            padding: 0.15rem 0.55rem;
+            border: 1px solid transparent;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+
+        .search-vip-legend-item.playable {
+            color: #bbf7d0;
+            border-color: rgba(74, 222, 128, 0.5);
+            background: rgba(21, 128, 61, 0.2);
+        }
+
+        .search-vip-legend-item.blocked {
+            color: #fdba74;
+            border-color: rgba(251, 146, 60, 0.55);
+            background: rgba(194, 65, 12, 0.22);
+        }
+
+        .search-vip-legend-item.unknown {
             color: #d4d4d8;
-            border-color: rgba(212, 212, 216, 0.45);
-            background: rgba(113, 113, 122, 0.18);
+            border-color: rgba(161, 161, 170, 0.5);
+            background: rgba(82, 82, 91, 0.2);
         }
 
         .search-scroll {
@@ -700,6 +759,11 @@
                         </button>
                     </div>
                     <div id="search-vip-hint" class="text-muted small d-none mb-2"></div>
+                    <div id="search-vip-legend" class="search-vip-legend d-none mb-2">
+                        <span class="search-vip-legend-item playable"><i class="fas fa-circle-check"></i>绿色：可播</span>
+                        <span class="search-vip-legend-item blocked"><i class="fas fa-ban"></i>橙红：VIP不可播</span>
+                        <span class="search-vip-legend-item unknown"><i class="fas fa-circle-question"></i>灰色：状态未知</span>
+                    </div>
                     <div class="text-muted small">搜索结果和歌单内容会在弹框中打开。</div>
                 </div>
             </div>
@@ -962,6 +1026,7 @@
     const $searchLoginManageText = $('#search-login-manage-text');
     const $searchLoginManageBtnText = $('#search-login-manage-btn-text');
     const $searchVipHint = $('#search-vip-hint');
+    const $searchVipLegend = $('#search-vip-legend');
     const $searchLoginStatus = $('#search-login-status');
     const $searchLoginQr = $('#search-login-qr');
     const $searchLoginModal = $('#searchLoginModal');
@@ -1749,16 +1814,28 @@
         if (!item || (source !== 'qq' && source !== 'netease')) {
             return '';
         }
+        const sourceStatus = searchStatusMap[source];
+        const vipState = String(sourceStatus && sourceStatus.vipState ? sourceStatus.vipState : 'unknown').toLowerCase();
+        const accountIsVip = vipState === 'vip';
+        const accountIsNonVip = vipState === 'non_vip';
         if (item.vipRequired === true) {
-            const hint = escapeHtml(item.vipHint || '该歌曲可能需要VIP或单曲购买');
-            return `<span class="search-vip-badge need" title="${hint}">需VIP</span>`;
+            if (accountIsVip) {
+                const hint = escapeHtml(item.vipHint || 'VIP歌曲，当前账号为VIP，可播放');
+                return `<span class="search-vip-badge playable vip-playable" title="${hint}"><i class="fas fa-crown"></i>VIP可播</span>`;
+            }
+            if (accountIsNonVip) {
+                const hint = escapeHtml(item.vipHint || 'VIP歌曲，当前账号非VIP，通常不可播放');
+                return `<span class="search-vip-badge blocked" title="${hint}"><i class="fas fa-ban"></i>VIP不可播</span>`;
+            }
+            const hint = escapeHtml(item.vipHint || 'VIP歌曲，账号会员状态待确认');
+            return `<span class="search-vip-badge warn" title="${hint}"><i class="fas fa-triangle-exclamation"></i>VIP待确认</span>`;
         }
         if (item.vipRequired === false) {
-            const hint = escapeHtml(item.vipHint || '该歌曲通常可直接播放');
-            return `<span class="search-vip-badge free" title="${hint}">可播</span>`;
+            const hint = escapeHtml(item.vipHint || '非VIP歌曲，通常可直接播放');
+            return `<span class="search-vip-badge playable" title="${hint}"><i class="fas fa-circle-check"></i>可播</span>`;
         }
         const hint = escapeHtml(item.vipHint || '未能识别该歌曲是否需要VIP');
-        return `<span class="search-vip-badge unknown" title="${hint}">未知</span>`;
+        return `<span class="search-vip-badge unknown" title="${hint}"><i class="fas fa-circle-question"></i>未知</span>`;
     }
 
     function updateSearchVipHint() {
@@ -1766,8 +1843,10 @@
         const source = String(status && status.source ? status.source : '').toLowerCase();
         if (!status || (source !== 'qq' && source !== 'netease')) {
             $searchVipHint.addClass('d-none').text('');
+            $searchVipLegend.addClass('d-none');
             return;
         }
+        $searchVipLegend.removeClass('d-none');
         const hint = status && status.vipHint ? String(status.vipHint) : '';
         if (hint) {
             $searchVipHint.removeClass('d-none').text(hint);
@@ -1917,7 +1996,10 @@
                 <input class="form-check-input search-select" type="checkbox" data-uid="${item.uid}" data-query="${item.pageUrl}" data-item="${encodedItem}" ${checked ? 'checked' : ''} />
                 ${coverTag}
                 <div class="search-meta">
-                    <div class="search-title">${title}${vipBadge}</div>
+                    <div class="search-title">
+                        <span class="search-title-text">${title}</span>
+                        ${vipBadge}
+                    </div>
                     <div class="search-sub">${sub}</div>
                     <div class="search-ref">${ref}</div>
                 </div>

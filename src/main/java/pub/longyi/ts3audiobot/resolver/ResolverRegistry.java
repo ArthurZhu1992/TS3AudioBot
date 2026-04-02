@@ -4,6 +4,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import pub.longyi.ts3audiobot.config.ConfigService;
 import pub.longyi.ts3audiobot.search.SearchAuthService;
+import pub.longyi.ts3audiobot.search.SearchAuthStore;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -43,14 +44,13 @@ public final class ResolverRegistry {
         var external = configService.get().resolvers.external;
         resolvers.add(new ExternalCliResolver("yt", external.yt));
         resolvers.add(new ExternalCliResolver("ytmusic", external.ytmusic));
-        resolvers.add(new ExternalCliResolver("netease", external.netease));
+        String neteaseCommand = selectNeteaseCommand(external.netease, external.ytmusic, external.yt);
+        resolvers.add(new ExternalCliResolver("netease", neteaseCommand, () ->
+            resolveSourceCookie(searchAuthService, "netease")
+        ));
         String qqCommand = selectQqCommand(external.qq, external.ytmusic, external.yt);
         resolvers.add(new ExternalCliResolver("qq", qqCommand, () ->
-            searchAuthService == null
-                ? ""
-                : searchAuthService.resolveAuth("qq", "")
-                    .map(record -> record.cookie() == null ? "" : record.cookie())
-                    .orElse("")
+            resolveSourceCookie(searchAuthService, "qq")
         ));
     }
 
@@ -62,6 +62,45 @@ public final class ResolverRegistry {
             return ytmusic;
         }
         return yt == null ? "" : yt;
+    }
+
+    private String selectNeteaseCommand(String netease, String ytmusic, String yt) {
+        if (netease != null && !netease.isBlank() && !"netease-cloud-music".equalsIgnoreCase(netease.trim())) {
+            return netease;
+        }
+        if (ytmusic != null && !ytmusic.isBlank()) {
+            return ytmusic;
+        }
+        return yt == null ? "" : yt;
+    }
+
+    private String resolveSourceCookie(SearchAuthService searchAuthService, String source) {
+        if (searchAuthService == null) {
+            return "";
+        }
+        List<SearchAuthStore.AuthRecord> records = searchAuthService.listAuthBySource(source);
+        if (records == null || records.isEmpty()) {
+            return searchAuthService.resolveAuth(source, "")
+                .map(record -> record.cookie() == null ? "" : record.cookie())
+                .orElse("");
+        }
+        SearchAuthStore.AuthRecord latest = null;
+        for (SearchAuthStore.AuthRecord record : records) {
+            if (record == null || record.cookie() == null || record.cookie().isBlank()) {
+                continue;
+            }
+            if (searchAuthService.isExpired(record)) {
+                continue;
+            }
+            if (latest == null) {
+                latest = record;
+                continue;
+            }
+            if (record.updatedAt() != null && (latest.updatedAt() == null || record.updatedAt().isAfter(latest.updatedAt()))) {
+                latest = record;
+            }
+        }
+        return latest == null ? "" : (latest.cookie() == null ? "" : latest.cookie());
     }
 
 
