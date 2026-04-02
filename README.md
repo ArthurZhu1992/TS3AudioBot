@@ -38,6 +38,10 @@ Linux / macOS：
 - 也可将可执行文件加入系统 PATH
 
 #### 2) 准备外置配置
+项目现在统一为两层配置：
+- `application.yml`（内置默认值 + 环境变量覆盖）
+- `ts3Audio-config.toml`（部署侧可编辑）
+
 将 `ts3Audio-config.toml` 放到 **jar 同目录**，按需修改：
 ```toml
 [configs]

@@ -98,25 +98,29 @@ public final class ConfigService {
      */
     public ConfigService(Environment environment) {
         this.configPath = resolveConfigPath(environment);
-        Map<String, String> externalSettings = new LinkedHashMap<>(loadExternalSettings(configPath));
         Map<String, String> springSettings = loadSpringSettings(environment);
+        Map<String, String> settings = new LinkedHashMap<>(springSettings);
+        Map<String, String> externalSettings = loadExternalSettings(configPath);
+        settings.putAll(externalSettings);
         if (!springSettings.isEmpty()) {
-            externalSettings.putAll(springSettings);
-            log.info("Loaded Spring YAML overrides for runtime tools/storage settings");
+            log.info("Loaded Spring YAML defaults for runtime tools/storage settings");
         }
-        this.dataDir = resolveDataDir(configPath, externalSettings);
-        this.queueStorePath = resolveQueueStorePath(this.dataDir, externalSettings);
-        this.ytdlpTempDir = resolvePath(configPath, getSetting(externalSettings, KEY_CACHE_YTDLP_TEMP_DIR, DEFAULT_YTDLP_TEMP_DIR));
-        this.ytdlpCacheDir = resolvePath(configPath, getSetting(externalSettings, KEY_CACHE_YTDLP_CACHE_DIR, DEFAULT_YTDLP_CACHE_DIR));
+        if (!externalSettings.isEmpty()) {
+            log.info("Applied external TOML overrides on top of Spring defaults");
+        }
+        this.dataDir = resolveDataDir(configPath, settings);
+        this.queueStorePath = resolveQueueStorePath(this.dataDir, settings);
+        this.ytdlpTempDir = resolvePath(configPath, getSetting(settings, KEY_CACHE_YTDLP_TEMP_DIR, DEFAULT_YTDLP_TEMP_DIR));
+        this.ytdlpCacheDir = resolvePath(configPath, getSetting(settings, KEY_CACHE_YTDLP_CACHE_DIR, DEFAULT_YTDLP_CACHE_DIR));
         ensureDirectoryExists(this.dataDir, "data");
         ensureDirectoryExists(this.queueStorePath.getParent(), "queue");
         ensureDirectoryExists(this.ytdlpTempDir, "yt-dlp temp");
         ensureDirectoryExists(this.ytdlpCacheDir, "yt-dlp cache");
-        Path dbPath = resolveDbPath(configPath, externalSettings);
+        Path dbPath = resolveDbPath(configPath, settings);
         this.configStore = new SqliteConfigStore(dbPath);
         this.configStore.initialize();
         log.info("Using sqlite config at {}", dbPath.toAbsolutePath());
-        this.config = loadFromStore(configPath, externalSettings);
+        this.config = loadFromStore(configPath, settings);
     }
 
 

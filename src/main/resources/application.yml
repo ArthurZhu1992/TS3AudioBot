@@ -3,14 +3,25 @@ spring:
     cache: false
 
 server:
+  address: ${TS3AB_WEB_ADDRESS:0.0.0.0}
   port: ${TS3AB_WEB_PORT:58913}
+  forward-headers-strategy: framework
+  servlet:
+    session:
+      tracking-modes: cookie
+      cookie:
+        secure: ${TS3AB_SESSION_COOKIE_SECURE:false}
+        http-only: true
+        same-site: lax
 
 management:
   endpoints:
     enabled-by-default: false
 
 ts3audiobot:
-  # Optional external TOML file. Keep default for backward compatibility.
+  # Unified config source:
+  # - Spring YAML/env vars provide built-in defaults
+  # - External ts3Audio-config.toml overrides user-flexible settings
   config:
     external-file: ${TS3AB_CONFIG:ts3Audio-config.toml}
 

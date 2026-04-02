@@ -36,6 +36,10 @@ After download:
 - Or add the executables to PATH
 
 #### 2) External Config
+Configuration is now unified into two layers:
+- `application.yml` (built-in defaults + env var overrides)
+- `ts3Audio-config.toml` (deployment-side editable settings)
+
 Place `ts3Audio-config.toml` **next to the jar** and edit as needed:
 ```toml
 [configs]
