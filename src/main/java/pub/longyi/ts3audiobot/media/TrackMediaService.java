@@ -1,10 +1,13 @@
 package pub.longyi.ts3audiobot.media;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 import pub.longyi.ts3audiobot.config.ConfigService;
 import pub.longyi.ts3audiobot.queue.Track;
+import pub.longyi.ts3audiobot.search.SearchAuthService;
+import pub.longyi.ts3audiobot.search.SearchAuthStore;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -25,6 +28,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.UUID;
 import java.util.stream.Stream;
 
@@ -42,16 +46,22 @@ public final class TrackMediaService {
     private static final String DEFAULT_MEDIA_DIR = "media";
     private static final String CACHE_AUDIO_DIR = "audio";
     private static final String CACHE_COVER_DIR = "cover";
+    private static final String CACHE_TRACK_DIR = "track";
     private static final String CACHE_TMP_DIR = "tmp";
     private static final String CACHE_TOUCH_FILE = ".last_access";
+    private static final String TRACK_BINDING_FILE = "binding.properties";
+    private static final String BINDING_AUDIO_KEY = "audioKey";
+    private static final String BINDING_COVER_KEY = "coverKey";
     private static final int DEFAULT_CACHE_TTL_HOURS = 24 * 30;
     private static final Duration TMP_ENTRY_TTL = Duration.ofHours(6);
     private static final long BYTES_PER_GB = 1024L * 1024L * 1024L;
 
     private final ConfigService configService;
+    private final SearchAuthService searchAuthService;
     private final Path mediaBaseDir;
     private final Path audioCacheDir;
     private final Path coverCacheDir;
+    private final Path trackCacheDir;
     private final Path tmpCacheDir;
     private final boolean mediaCacheEnabled;
     private final boolean audioCacheEnabled;
@@ -59,7 +69,13 @@ public final class TrackMediaService {
     private final long maxCacheBytes;
 
     public TrackMediaService(ConfigService configService, Environment environment) {
+        this(configService, environment, null);
+    }
+
+    @Autowired
+    public TrackMediaService(ConfigService configService, Environment environment, SearchAuthService searchAuthService) {
         this.configService = configService;
+        this.searchAuthService = searchAuthService;
         var mediaConfig = configService.get().media;
         this.mediaCacheEnabled = mediaConfig != null && mediaConfig.cacheEnabled;
         this.audioCacheEnabled = mediaConfig != null && mediaConfig.audioCacheEnabled;
@@ -71,12 +87,14 @@ public final class TrackMediaService {
         this.mediaBaseDir = resolveMediaBaseDir(configured).toAbsolutePath().normalize();
         this.audioCacheDir = mediaBaseDir.resolve(CACHE_AUDIO_DIR);
         this.coverCacheDir = mediaBaseDir.resolve(CACHE_COVER_DIR);
+        this.trackCacheDir = mediaBaseDir.resolve(CACHE_TRACK_DIR);
         this.tmpCacheDir = mediaBaseDir.resolve(CACHE_TMP_DIR);
         try {
             Files.createDirectories(tmpCacheDir);
             if (mediaCacheEnabled) {
-                Files.createDirectories(audioCacheDir);
-                Files.createDirectories(coverCacheDir);
+                Files.createDirectories(trackCacheDir);
+                cleanStaleCacheEntries(trackCacheDir, cacheEntryTtl);
+                // Keep legacy shared caches manageable during migration.
                 cleanStaleCacheEntries(audioCacheDir, cacheEntryTtl);
                 cleanStaleCacheEntries(coverCacheDir, cacheEntryTtl);
                 enforceCacheSizeLimitIfNeeded();
@@ -108,24 +126,31 @@ public final class TrackMediaService {
     }
 
     public void deleteTrackMedia(Track track) {
-        // Shared cache entries are deduplicated by source key and cleaned by TTL.
-        // Deleting per queue item only removes legacy per-track cache to avoid
-        // accidentally deleting files still referenced by other queue entries.
+        deleteDirectoryQuietly(resolveTrackCacheEntryDir(track == null ? null : track.id()));
         deleteDirectoryQuietly(resolveLegacyTrackDir(track));
     }
 
     public Optional<Path> findCoverFile(String trackId) {
-        if (!mediaCacheEnabled) {
-            return findCachedFile(resolveLegacyTrackDir(trackId), "cover.");
-        }
         if (isBlank(trackId)) {
             return Optional.empty();
         }
-        Optional<Path> cached = findCachedFile(resolveCoverCacheEntryDir(trackId), "cover.");
-        if (cached.isPresent()) {
-            return cached;
+        Optional<Path> inTrackDir = findCachedFile(resolveTrackCacheEntryDir(trackId), "cover.");
+        if (inTrackDir.isPresent()) {
+            return inTrackDir;
         }
-        return findCachedFile(resolveLegacyTrackDir(trackId), "cover.");
+        if (!mediaCacheEnabled) {
+            return findCachedFile(resolveLegacyTrackDir(trackId), "cover.");
+        }
+        Optional<Path> legacySharedByBinding = findCachedFile(
+            resolveCoverCacheEntryDir(readLegacyBindingKey(trackId, BINDING_COVER_KEY).orElse("")),
+            "cover."
+        );
+        if (legacySharedByBinding.isPresent()) {
+            return legacySharedByBinding;
+        }
+        // Backward compatibility: older builds used the cover cache key in URL directly.
+        Optional<Path> cached = findCachedFile(resolveCoverCacheEntryDir(trackId), "cover.");
+        return cached.isPresent() ? cached : findCachedFile(resolveLegacyTrackDir(trackId), "cover.");
     }
 
     public Path mediaBaseDir() {
@@ -165,35 +190,49 @@ public final class TrackMediaService {
             String coverUrl = track == null ? "" : track.coverUrl();
             return coverUrl == null ? "" : coverUrl;
         }
-        String coverKey = resolveCoverCacheKey(track);
-        Path coverDir = ensureCacheEntryDir(coverCacheDir, coverKey);
-        if (coverDir == null) {
+        if (track == null || isBlank(track.id())) {
             return track.coverUrl() == null ? "" : track.coverUrl();
         }
-        Optional<Path> cached = findCachedFile(coverDir, "cover.");
-        if (cached.isPresent()) {
-            markCacheEntryTouched(coverDir);
-            return buildCoverUrl(coverKey);
+        Path trackDir = ensureCacheEntryDir(trackCacheDir, track.id());
+        if (trackDir == null) {
+            return track.coverUrl() == null ? "" : track.coverUrl();
         }
-        Optional<Path> migrated = importLegacyCache(resolveLegacyTrackDir(track), "cover.", coverDir, "cover");
+        Optional<Path> cached = findCachedFile(trackDir, "cover.");
+        if (cached.isPresent()) {
+            markCacheEntryTouched(trackDir);
+            return buildCoverUrl(track.id());
+        }
+        Optional<Path> migrated = importLegacyCache(resolveLegacyTrackDir(track), "cover.", trackDir, "cover");
         if (migrated.isPresent()) {
-            markCacheEntryTouched(coverDir);
+            markCacheEntryTouched(trackDir);
             enforceCacheSizeLimitIfNeeded();
-            return buildCoverUrl(coverKey);
+            return buildCoverUrl(track.id());
+        }
+        String legacyCoverKey = firstNonBlank(
+            readLegacyBindingKey(track.id(), BINDING_COVER_KEY).orElse(""),
+            resolveCoverCacheKey(track)
+        );
+        Optional<Path> migratedLegacyShared = importLegacyCache(
+            resolveCoverCacheEntryDir(legacyCoverKey),
+            "cover.",
+            trackDir,
+            "cover"
+        );
+        if (migratedLegacyShared.isPresent()) {
+            markCacheEntryTouched(trackDir);
+            enforceCacheSizeLimitIfNeeded();
+            return buildCoverUrl(track.id());
         }
         String coverUrl = track.coverUrl();
         if (!isHttpUrl(coverUrl)) {
             return coverUrl == null ? "" : coverUrl;
         }
-        if (coverDir == null) {
-            return coverUrl;
-        }
         try {
-            DownloadedFile downloaded = downloadHttpFile(coverUrl, coverDir, "cover", true);
+            DownloadedFile downloaded = downloadHttpFile(coverUrl, trackDir, "cover", true);
             if (downloaded != null) {
-                markCacheEntryTouched(coverDir);
+                markCacheEntryTouched(trackDir);
                 enforceCacheSizeLimitIfNeeded();
-                return buildCoverUrl(coverKey);
+                return buildCoverUrl(track.id());
             }
         } catch (Exception ex) {
             log.warn("Failed to cache cover for track {}", track.id(), ex);
@@ -211,32 +250,46 @@ public final class TrackMediaService {
         if (isExistingLocalPath(track.streamUrl())) {
             return Path.of(track.streamUrl()).toAbsolutePath().normalize().toString();
         }
-        String audioKey = resolveAudioCacheKey(track);
-        Path audioDir = ensureCacheEntryDir(audioCacheDir, audioKey);
-        if (audioDir == null) {
+        Path trackDir = ensureCacheEntryDir(trackCacheDir, track.id());
+        if (trackDir == null) {
             return track.streamUrl();
         }
-        Optional<Path> cached = findCachedFile(audioDir, "audio.");
+        Optional<Path> cached = findCachedFile(trackDir, "audio.");
         if (cached.isPresent()) {
-            markCacheEntryTouched(audioDir);
+            markCacheEntryTouched(trackDir);
             return cached.get().toAbsolutePath().normalize().toString();
         }
-        Optional<Path> migrated = importLegacyCache(resolveLegacyTrackDir(track), "audio.", audioDir, "audio");
+        Optional<Path> migrated = importLegacyCache(resolveLegacyTrackDir(track), "audio.", trackDir, "audio");
         if (migrated.isPresent()) {
-            markCacheEntryTouched(audioDir);
+            markCacheEntryTouched(trackDir);
             enforceCacheSizeLimitIfNeeded();
             return migrated.get().toAbsolutePath().normalize().toString();
         }
-        if (cacheAudioWithYtDlp(track, audioDir)) {
-            markCacheEntryTouched(audioDir);
+        String legacyAudioKey = firstNonBlank(
+            readLegacyBindingKey(track.id(), BINDING_AUDIO_KEY).orElse(""),
+            resolveAudioCacheKey(track)
+        );
+        Optional<Path> migratedLegacyShared = importLegacyCache(
+            resolveAudioCacheEntryDir(legacyAudioKey),
+            "audio.",
+            trackDir,
+            "audio"
+        );
+        if (migratedLegacyShared.isPresent()) {
+            markCacheEntryTouched(trackDir);
             enforceCacheSizeLimitIfNeeded();
-            return findCachedFile(audioDir, "audio.").map(path -> path.toAbsolutePath().normalize().toString()).orElse(track.streamUrl());
+            return migratedLegacyShared.get().toAbsolutePath().normalize().toString();
+        }
+        if (cacheAudioWithYtDlp(track, trackDir)) {
+            markCacheEntryTouched(trackDir);
+            enforceCacheSizeLimitIfNeeded();
+            return findCachedFile(trackDir, "audio.").map(path -> path.toAbsolutePath().normalize().toString()).orElse(track.streamUrl());
         }
         if (isHttpUrl(track.streamUrl())) {
             try {
-                DownloadedFile downloaded = downloadHttpFile(track.streamUrl(), audioDir, "audio", false);
+                DownloadedFile downloaded = downloadHttpFile(track.streamUrl(), trackDir, "audio", false);
                 if (downloaded != null) {
-                    markCacheEntryTouched(audioDir);
+                    markCacheEntryTouched(trackDir);
                     enforceCacheSizeLimitIfNeeded();
                     return downloaded.path().toAbsolutePath().normalize().toString();
                 }
@@ -256,19 +309,7 @@ public final class TrackMediaService {
         if (isBlank(command)) {
             return false;
         }
-        List<String> args = List.of(
-            command,
-            "-q",
-            "--no-warnings",
-            "--no-playlist",
-            "--encoding",
-            "UTF-8",
-            "-f",
-            "bestaudio",
-            "-o",
-            trackDir.resolve("audio.%(ext)s").toString(),
-            sourceId
-        );
+        List<String> args = buildYtDlpCacheArgs(track, trackDir);
         ProcessBuilder builder = new ProcessBuilder(args);
         builder.redirectErrorStream(true);
         try {
@@ -288,6 +329,112 @@ public final class TrackMediaService {
             log.warn("Failed to cache audio with yt-dlp for track {}", track.id(), ex);
             return false;
         }
+    }
+
+    private List<String> buildYtDlpCacheArgs(Track track, Path trackDir) {
+        String sourceId = track == null ? "" : track.sourceId();
+        String sourceType = track == null ? "" : track.sourceType();
+        String command = resolveYtCommand(sourceType, sourceId);
+        List<String> args = new ArrayList<>();
+        args.add(command);
+        args.add("-q");
+        args.add("--no-warnings");
+        args.add("--no-playlist");
+        args.add("--encoding");
+        args.add("UTF-8");
+        args.add("-f");
+        args.add("bestaudio");
+        String referer = resolveAuthReferer(sourceType, sourceId);
+        if (!isBlank(referer)) {
+            args.add("--referer");
+            args.add(referer);
+            // IMPORTANT: do not remove this cookie forwarding.
+            // Resolver and cache are two independent yt-dlp invocations; without
+            // cookie in cache stage, VIP tracks can silently fall back to ~30s previews.
+            String cookie = resolveSourceCookie(sourceType, sourceId);
+            if (!isBlank(cookie)) {
+                args.add("--add-headers");
+                args.add("Cookie: " + cookie);
+            }
+        }
+        args.add("-o");
+        args.add(trackDir.resolve("audio.%(ext)s").toString());
+        args.add(sourceId);
+        return args;
+    }
+
+    private String resolveAuthReferer(String sourceType, String sourceId) {
+        String normalized = normalizeSourceType(sourceType);
+        String lowerSourceId = sourceId == null ? "" : sourceId.toLowerCase(Locale.ROOT);
+        if ("qq".equals(normalized)
+            || lowerSourceId.contains("y.qq.com")
+            || lowerSourceId.contains("qqmusic.qq.com")
+            || lowerSourceId.contains("c.y.qq.com")
+            || lowerSourceId.contains("u.y.qq.com")) {
+            return "https://y.qq.com/";
+        }
+        if ("netease".equals(normalized)
+            || lowerSourceId.contains("music.163.com")
+            || lowerSourceId.contains("musicapi.163.com")
+            || lowerSourceId.contains("interface3.music.163.com")) {
+            return "https://music.163.com/";
+        }
+        return "";
+    }
+
+    private String resolveSourceCookie(String sourceType, String sourceId) {
+        if (searchAuthService == null) {
+            return "";
+        }
+        String normalized = normalizeSourceType(sourceType);
+        String lowerSourceId = sourceId == null ? "" : sourceId.toLowerCase(Locale.ROOT);
+        String source = "";
+        if ("qq".equals(normalized)
+            || lowerSourceId.contains("y.qq.com")
+            || lowerSourceId.contains("qqmusic.qq.com")
+            || lowerSourceId.contains("c.y.qq.com")
+            || lowerSourceId.contains("u.y.qq.com")) {
+            source = "qq";
+        } else if ("netease".equals(normalized)
+            || lowerSourceId.contains("music.163.com")
+            || lowerSourceId.contains("musicapi.163.com")
+            || lowerSourceId.contains("interface3.music.163.com")) {
+            source = "netease";
+        }
+        if (isBlank(source)) {
+            return "";
+        }
+        return latestAuthCookie(source);
+    }
+
+    private String latestAuthCookie(String source) {
+        List<SearchAuthStore.AuthRecord> records = searchAuthService.listAuthBySource(source);
+        SearchAuthStore.AuthRecord latest = null;
+        if (records != null) {
+            for (SearchAuthStore.AuthRecord record : records) {
+                if (record == null || searchAuthService.isExpired(record)) {
+                    continue;
+                }
+                if (isBlank(record.cookie())) {
+                    continue;
+                }
+                if (latest == null) {
+                    latest = record;
+                    continue;
+                }
+                if (record.updatedAt() != null
+                    && (latest.updatedAt() == null || record.updatedAt().isAfter(latest.updatedAt()))) {
+                    latest = record;
+                }
+            }
+        }
+        if (latest != null) {
+            return latest.cookie().trim();
+        }
+        return searchAuthService.resolveAuth(source, "")
+            .map(SearchAuthStore.AuthRecord::cookie)
+            .map(String::trim)
+            .orElse("");
     }
 
     private String resolveYtCommand(String sourceType, String sourceId) {
@@ -453,6 +600,38 @@ public final class TrackMediaService {
         return coverCacheDir.resolve(sanitizeSegment(token));
     }
 
+    private Path resolveAudioCacheEntryDir(String token) {
+        if (isBlank(token)) {
+            return null;
+        }
+        return audioCacheDir.resolve(sanitizeSegment(token));
+    }
+
+    private Path resolveTrackCacheEntryDir(String trackId) {
+        if (isBlank(trackId)) {
+            return null;
+        }
+        return trackCacheDir.resolve(sanitizeSegment(trackId));
+    }
+
+    private Optional<String> readLegacyBindingKey(String trackId, String keyName) {
+        Path bindingFile = resolveTrackCacheEntryDir(trackId);
+        if (bindingFile != null) {
+            bindingFile = bindingFile.resolve(TRACK_BINDING_FILE);
+        }
+        if (bindingFile == null || Files.notExists(bindingFile)) {
+            return Optional.empty();
+        }
+        Properties properties = new Properties();
+        try (InputStream input = Files.newInputStream(bindingFile)) {
+            properties.load(input);
+        } catch (IOException ex) {
+            return Optional.empty();
+        }
+        String value = properties.getProperty(keyName, "").trim();
+        return value.isBlank() ? Optional.empty() : Optional.of(value);
+    }
+
     private Path ensureCacheEntryDir(Path baseDir, String key) {
         if (baseDir == null || isBlank(key)) {
             return null;
@@ -516,7 +695,7 @@ public final class TrackMediaService {
     }
 
     private String buildCoverUrl(String trackId) {
-        return "/internal/media/cover/" + trackId;
+        return "/internal/media/cover/" + sanitizeSegment(trackId);
     }
 
     private void cleanStaleCacheEntries(Path baseDir, Duration ttl) throws IOException {
@@ -614,7 +793,7 @@ public final class TrackMediaService {
             return;
         }
         try {
-            long totalSize = directorySize(audioCacheDir) + directorySize(coverCacheDir);
+            long totalSize = directorySize(trackCacheDir) + directorySize(audioCacheDir) + directorySize(coverCacheDir);
             if (totalSize <= maxCacheBytes) {
                 return;
             }
@@ -634,6 +813,7 @@ public final class TrackMediaService {
 
     private List<CacheEntry> listCacheEntries() {
         List<CacheEntry> entries = new ArrayList<>();
+        entries.addAll(listCacheEntries(trackCacheDir));
         entries.addAll(listCacheEntries(audioCacheDir));
         entries.addAll(listCacheEntries(coverCacheDir));
         return entries;

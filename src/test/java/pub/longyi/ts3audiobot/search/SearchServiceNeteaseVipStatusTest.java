@@ -77,6 +77,36 @@ class SearchServiceNeteaseVipStatusTest {
         assertEquals("legacy-user (12345)", status.accountInfo());
     }
 
+    @Test
+    void neteaseStatusTreatsVipTypeZeroAsNonVipEvenWithRedLevel() {
+        SearchProvider provider = mock(SearchProvider.class);
+        when(provider.source()).thenReturn("netease");
+        when(provider.requiresLogin()).thenReturn(true);
+        when(provider.supportsPlaylists()).thenReturn(true);
+
+        SearchAuthService authService = mock(SearchAuthService.class);
+        SearchAuthStore.AuthRecord auth = new SearchAuthStore.AuthRecord(
+            "netease",
+            SearchAuthService.SCOPE_GLOBAL,
+            "",
+            "MUSIC_U=abc",
+            "",
+            "{\"userId\":\"12345\",\"nickname\":\"tester\",\"vipType\":\"0\",\"redVipLevel\":\"7\"}",
+            null,
+            Instant.now()
+        );
+        when(authService.resolveAuth("netease", "bot-1")).thenReturn(Optional.of(auth));
+        when(authService.isExpired(auth)).thenReturn(false);
+
+        SearchService service = new SearchService(List.of(provider), authService, mockConfigService());
+        List<SearchStatus> statuses = service.getStatus("bot-1");
+        SearchStatus status = statuses.get(0);
+
+        assertEquals("non_vip", status.vipState());
+        assertEquals("当前账号为非VIP", status.vipHint());
+        assertEquals("tester (12345)", status.accountInfo());
+    }
+
     private ConfigService mockConfigService() {
         ConfigService configService = mock(ConfigService.class);
         AppConfig config = new AppConfig(

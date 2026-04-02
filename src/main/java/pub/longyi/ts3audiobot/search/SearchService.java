@@ -581,11 +581,14 @@ public final class SearchService {
             }
             int vipType = extra.path("vipType").asInt(0);
             int redVipLevel = extra.path("redVipLevel").asInt(0);
-            if (vipType > 0 || redVipLevel > 0) {
+            if (vipType > 0) {
                 String levelText = redVipLevel > 0 ? ("黑胶VIP Lv." + redVipLevel) : "黑胶VIP";
                 return new NeteaseVipState("vip", levelText);
             }
-            return new NeteaseVipState("non_vip", "当前账号为非VIP");
+            if (hasVipType) {
+                return new NeteaseVipState("non_vip", "当前账号为非VIP");
+            }
+            return new NeteaseVipState("unknown", "未识别到会员信息");
         } catch (Exception ignored) {
             return new NeteaseVipState("unknown", "未识别到会员信息");
         }
