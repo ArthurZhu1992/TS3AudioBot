@@ -19,8 +19,8 @@ ffmpeg_path = "ffmpeg"
 auto_download = true
 
 [resolvers.external]
-yt = "F:/project/IdeaProject/SteamRegHelper/TS3AudioBot/yt-dlp/yt-dlp.exe"
-ytmusic = "F:/project/IdeaProject/SteamRegHelper/TS3AudioBot/yt-dlp/yt-dlp.exe"
+yt = "yt-dlp"
+ytmusic = "yt-dlp"
 netease = "netease-cloud-music"
 qq = "qqmusic"
 

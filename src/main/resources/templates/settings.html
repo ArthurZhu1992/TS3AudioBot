@@ -113,6 +113,7 @@
             <p class="text-muted mb-0">配置文件加载于 <code>ts3Audio-config.toml</code>，修改配置后需要重启服务。</p>
         </div>
     </div>
+    <div id="dependency-banner" class="d-none"></div>
 
     <div class="row g-4">
         <div class="col-12 col-lg-5">
@@ -146,5 +147,13 @@
 
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/js/dependency-banner.js"></script>
+<script>
+    $(function () {
+        if (window.TS3DependencyBanner) {
+            window.TS3DependencyBanner.mount('#dependency-banner');
+        }
+    });
+</script>
 </body>
 </html>

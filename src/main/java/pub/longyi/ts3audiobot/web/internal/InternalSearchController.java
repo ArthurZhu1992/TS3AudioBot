@@ -66,11 +66,13 @@ public final class InternalSearchController {
         @RequestParam(required = false) String botId,
         @RequestParam String payload
     ) {
-        if (!"qq".equalsIgnoreCase(source)) {
+        if (!"qq".equalsIgnoreCase(source) && !"netease".equalsIgnoreCase(source)) {
             return ResponseEntity.badRequest().body("\u5f53\u524d\u5e73\u53f0\u4e0d\u652f\u6301\u624b\u52a8\u5bfc\u5165");
         }
         try {
-            String message = searchService.importQqManualAuth(scope, botId, payload);
+            String message = "qq".equalsIgnoreCase(source)
+                ? searchService.importQqManualAuth(scope, botId, payload)
+                : searchService.importNeteaseManualAuth(scope, botId, payload);
             return ResponseEntity.ok(Map.of("message", message));
         } catch (IllegalArgumentException ex) {
             return ResponseEntity.badRequest().body(ex.getMessage());

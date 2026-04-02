@@ -261,6 +261,7 @@
             <button class="btn btn-primary" type="button" id="newBotBtn">新建机器人</button>
         </div>
     </div>
+    <div id="dependency-banner" class="d-none"></div>
 
     <div class="row g-4">
         <div class="col-12 col-xl-7">
@@ -430,6 +431,7 @@
 
 <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="/js/dependency-banner.js"></script>
 <script>
     const $form = $('#botForm');
     const form = $form[0];
@@ -566,6 +568,9 @@
     }
 
     $(function () {
+        if (window.TS3DependencyBanner) {
+            window.TS3DependencyBanner.mount('#dependency-banner');
+        }
         deleteModal = new bootstrap.Modal($('#deleteModal')[0]);
         $('[data-bs-toggle="tooltip"]').each(function () {
             new bootstrap.Tooltip(this);

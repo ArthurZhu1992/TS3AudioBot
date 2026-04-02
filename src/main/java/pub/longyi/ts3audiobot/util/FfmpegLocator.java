@@ -249,10 +249,14 @@ public final class FfmpegLocator {
         }
         Path archive = findArchive(ffmpegDir, os, arch);
         if (archive == null && allowDownload) {
+            if (strictMissingArchive) {
+                log.warn("[FFmpeg] skip auto-download during startup, using {}", fallback);
+                return fallback;
+            }
             archive = downloadArchive(ffmpegDir, os, arch);
         }
         if (archive == null) {
-            if (strictMissingArchive) {
+            if (strictMissingArchive && !allowDownload) {
                 throw new IllegalStateException("Bundled ffmpeg archive not found in " + ffmpegDir);
             }
             log.warn("[FFmpeg] bundled archive not found under {}, using {}", ffmpegDir, fallback);
@@ -261,6 +265,10 @@ public final class FfmpegLocator {
         try {
             extractArchive(archive, ffmpegDir);
         } catch (IOException ex) {
+            if (allowDownload) {
+                log.warn("[FFmpeg] failed to extract bundled archive {}, using {}", archive, fallback, ex);
+                return fallback;
+            }
             throw new IllegalStateException("Failed to extract bundled ffmpeg " + archive, ex);
         }
         deleteArchiveQuietly(archive);
@@ -268,7 +276,7 @@ public final class FfmpegLocator {
         if (found != null) {
             return found.toString();
         }
-        if (strictMissingArchive) {
+        if (strictMissingArchive && !allowDownload) {
             throw new IllegalStateException("Bundled ffmpeg extracted but binary not found under " + ffmpegDir);
         }
         log.warn("[FFmpeg] bundled binary not found under {}, using {}", ffmpegDir, fallback);

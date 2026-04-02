@@ -38,6 +38,9 @@ public final class SearchService {
     private static final Pattern CURL_COOKIE_HEADER_PATTERN = Pattern.compile(
         "(?is)(?:-H|--header)\\s+(?:'|\")\\s*cookie\\s*:\\s*([^'\"]+)(?:'|\")"
     );
+    private static final Pattern CURL_COOKIE_OPTION_PATTERN = Pattern.compile(
+        "(?is)(?:-b|--cookie)\\s+(?:\\^)?(?:'|\")\\s*([^'\"]+?)\\s*(?:\\^)?(?:'|\")"
+    );
     private static final int DEFAULT_PAGE = 1;
     private static final int MAX_PAGE_SIZE = 100;
     private static final Duration DETAIL_JOB_TIMEOUT = Duration.ofMinutes(2);
@@ -99,6 +102,16 @@ public final class SearchService {
                     vipState = vipProbe.state();
                     vipHint = vipProbe.message();
                     accountInfo = resolveQqAccountInfo(auth.orElse(null));
+                }
+            } else if ("netease".equalsIgnoreCase(provider.source())) {
+                if (!loggedIn) {
+                    vipState = "unknown";
+                    vipHint = "未登录，无法识别VIP状态";
+                } else {
+                    NeteaseVipState state = resolveNeteaseVipState(auth.orElse(null));
+                    vipState = state.state();
+                    vipHint = state.hint();
+                    accountInfo = resolveNeteaseAccountInfo(auth.orElse(null));
                 }
             }
             statuses.add(new SearchStatus(
@@ -221,6 +234,62 @@ public final class SearchService {
         );
         authService.upsertAuth(auth);
         return "QQ 鐧诲綍淇℃伅宸插鍏ワ紙宸蹭繚瀛橈級";
+    }
+
+    public String importNeteaseManualAuth(String scope, String botId, String payloadText) {
+        String safeScope = "bot".equalsIgnoreCase(scope) ? SearchAuthService.SCOPE_BOT : SearchAuthService.SCOPE_GLOBAL;
+        String safeBotId = normalizeScopeBotId(safeScope, botId);
+        String cookie = extractCookieFromPayload(payloadText);
+        if (cookie.isBlank()) {
+            throw new IllegalArgumentException("未从输入内容中提取到 cookie");
+        }
+        cookie = normalizeCookieHeader(cookie);
+        String musicU = extractFirstCookie(cookie, "MUSIC_U");
+        if (musicU.isBlank()) {
+            throw new IllegalArgumentException("cookie 缺少 MUSIC_U，无法导入。请在 F12 Network 中复制 music.163.com 请求头里的 cookie: 整行（或 Copy as cURL），不要使用 document.cookie 脚本结果。");
+        }
+        SearchProvider provider = requireProvider("netease");
+        String userId = "";
+        String nickname = "";
+        String vipType = "";
+        String redVipLevel = "";
+        if (provider instanceof NeteaseSearchProvider neteaseProvider) {
+            NeteaseSearchProvider.AccountProfile profile = neteaseProvider.resolveAccountProfile(cookie);
+            userId = profile.userId() == null ? "" : profile.userId().trim();
+            nickname = profile.nickname() == null ? "" : profile.nickname().trim();
+            vipType = Integer.toString(profile.vipType());
+            redVipLevel = Integer.toString(profile.redVipLevel());
+            if (userId.isBlank() && nickname.isBlank()) {
+                throw new IllegalArgumentException("cookie 无效或已过期，请重新登录后导入");
+            }
+        }
+        Map<String, String> extra = new LinkedHashMap<>();
+        if (!userId.isBlank()) {
+            extra.put("userId", userId);
+        }
+        if (!nickname.isBlank()) {
+            extra.put("nickname", nickname);
+        }
+        if (!vipType.isBlank()) {
+            extra.put("vipType", vipType);
+        }
+        if (!redVipLevel.isBlank()) {
+            extra.put("redVipLevel", redVipLevel);
+        }
+        extra.put("mode", "manual_console");
+        extra.put("importedAt", Instant.now().toString());
+        SearchAuthStore.AuthRecord auth = new SearchAuthStore.AuthRecord(
+            "netease",
+            safeScope,
+            safeBotId,
+            cookie,
+            "",
+            toJson(extra),
+            null,
+            Instant.now()
+        );
+        authService.upsertAuth(auth);
+        return "网易云登录信息已导入（已保存）";
     }
 
     public SearchPage search(String source, String botId, String query, int page, int pageSize) {
@@ -473,6 +542,55 @@ public final class SearchService {
         return "QQ " + masked;
     }
 
+    private String resolveNeteaseAccountInfo(SearchAuthStore.AuthRecord auth) {
+        if (auth == null) {
+            return "";
+        }
+        String userId = "";
+        String nickname = "";
+        try {
+            if (auth.extraJson() != null && !auth.extraJson().isBlank()) {
+                JsonNode extra = MAPPER.readTree(auth.extraJson());
+                userId = extra.path("userId").asText("");
+                nickname = extra.path("nickname").asText("");
+            }
+        } catch (Exception ignored) {
+        }
+        if (!nickname.isBlank() && !userId.isBlank()) {
+            return nickname + " (" + userId + ")";
+        }
+        if (!nickname.isBlank()) {
+            return nickname;
+        }
+        if (!userId.isBlank()) {
+            return "UID " + userId;
+        }
+        return "网易云账号已登录";
+    }
+
+    private NeteaseVipState resolveNeteaseVipState(SearchAuthStore.AuthRecord auth) {
+        if (auth == null || auth.extraJson() == null || auth.extraJson().isBlank()) {
+            return new NeteaseVipState("unknown", "未识别到会员信息");
+        }
+        try {
+            JsonNode extra = MAPPER.readTree(auth.extraJson());
+            boolean hasVipType = extra.hasNonNull("vipType") && !extra.path("vipType").asText("").isBlank();
+            boolean hasRedVipLevel = extra.hasNonNull("redVipLevel") && !extra.path("redVipLevel").asText("").isBlank();
+            if (!hasVipType && !hasRedVipLevel) {
+                return new NeteaseVipState("unknown", "未识别到会员信息");
+            }
+            int vipType = extra.path("vipType").asInt(0);
+            int redVipLevel = extra.path("redVipLevel").asInt(0);
+            if (vipType > 0 || redVipLevel > 0) {
+                String levelText = redVipLevel > 0 ? ("黑胶VIP Lv." + redVipLevel) : "黑胶VIP";
+                return new NeteaseVipState("vip", levelText);
+            }
+            return new NeteaseVipState("non_vip", "当前账号为非VIP");
+        } catch (Exception ignored) {
+            return new NeteaseVipState("unknown", "未识别到会员信息");
+        }
+    }
+
     private String normalizeScopeBotId(String scopeType, String botId) {
         String normalized = normalizeBotId(botId);
         if (SearchAuthService.SCOPE_BOT.equals(scopeType)) {
@@ -492,8 +610,9 @@ public final class SearchService {
         if (raw.isBlank()) {
             return "";
         }
+        String normalizedCurl = normalizeCurlPayload(raw);
         try {
-            JsonNode root = MAPPER.readTree(raw);
+            JsonNode root = MAPPER.readTree(normalizedCurl);
             String cookie = root.path("cookie").asText("");
             if (cookie.isBlank()) {
                 cookie = root.path("cookies").asText("");
@@ -514,9 +633,37 @@ public final class SearchService {
                 return matched;
             }
         }
+        Matcher lineMatcherNormalized = RAW_COOKIE_LINE_PATTERN.matcher(normalizedCurl);
+        if (lineMatcherNormalized.find()) {
+            String matched = cleanupCookieCandidate(lineMatcherNormalized.group(1));
+            if (!matched.isBlank()) {
+                return matched;
+            }
+        }
         Matcher curlMatcher = CURL_COOKIE_HEADER_PATTERN.matcher(raw);
         if (curlMatcher.find()) {
             String matched = cleanupCookieCandidate(curlMatcher.group(1));
+            if (!matched.isBlank()) {
+                return matched;
+            }
+        }
+        Matcher curlMatcherNormalized = CURL_COOKIE_HEADER_PATTERN.matcher(normalizedCurl);
+        if (curlMatcherNormalized.find()) {
+            String matched = cleanupCookieCandidate(curlMatcherNormalized.group(1));
+            if (!matched.isBlank()) {
+                return matched;
+            }
+        }
+        Matcher curlCookieOption = CURL_COOKIE_OPTION_PATTERN.matcher(raw);
+        if (curlCookieOption.find()) {
+            String matched = cleanupCookieCandidate(curlCookieOption.group(1));
+            if (!matched.isBlank()) {
+                return matched;
+            }
+        }
+        Matcher curlCookieOptionNormalized = CURL_COOKIE_OPTION_PATTERN.matcher(normalizedCurl);
+        if (curlCookieOptionNormalized.find()) {
+            String matched = cleanupCookieCandidate(curlCookieOptionNormalized.group(1));
             if (!matched.isBlank()) {
                 return matched;
             }
@@ -533,6 +680,18 @@ public final class SearchService {
             }
         }
         return cleanupCookieCandidate(raw);
+    }
+
+    private String normalizeCurlPayload(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "";
+        }
+        String text = raw;
+        // cmd-style cURL uses caret line continuation and escaping.
+        text = text.replaceAll("\\^\\s*\\r?\\n\\s*", " ");
+        text = text.replace("\\r", " ").replace("\\n", " ");
+        text = text.replaceAll("\\^(.)", "$1");
+        return text.trim();
     }
 
     private String normalizeCookieHeader(String cookieHeader) {
@@ -669,6 +828,9 @@ public final class SearchService {
         private Future<SearchPage> future() {
             return future;
         }
+    }
+
+    private record NeteaseVipState(String state, String hint) {
     }
 
 
