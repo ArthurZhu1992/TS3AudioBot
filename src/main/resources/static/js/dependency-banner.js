@@ -4,6 +4,21 @@
         return;
     }
 
+    function escapeHtml(value) {
+        return $('<div/>').text(value == null ? '' : String(value)).html();
+    }
+
+    function normalizeDownloadUrl(value) {
+        if (!value) {
+            return '';
+        }
+        const url = String(value).trim();
+        if (!url) {
+            return '';
+        }
+        return /^https?:\/\//i.test(url) ? url : '';
+    }
+
     function formatBytes(value) {
         const num = Number(value || 0);
         if (!Number.isFinite(num) || num <= 0) {
@@ -26,11 +41,11 @@
         }
         const s = Math.floor(seconds);
         if (s < 60) {
-            return `${s}s`;
+            return `${s}秒`;
         }
         const m = Math.floor(s / 60);
         const remain = s % 60;
-        return `${m}m ${remain}s`;
+        return `${m}分 ${remain}秒`;
     }
 
     function renderItem(item) {
@@ -43,11 +58,7 @@
         const total = Number(item.totalBytes) > 0 ? formatBytes(item.totalBytes) : '--';
         const speed = Number(item.speedBytesPerSecond) > 0 ? `${formatBytes(item.speedBytesPerSecond)}/s` : '--';
         const eta = formatEta(Number(item.etaSeconds));
-        const statusText = installed
-            ? '已就绪'
-            : downloading
-                ? '下载中'
-                : '缺失';
+        const statusText = installed ? '已就绪' : (downloading ? '下载中' : '缺失');
         const statusClass = installed ? 'text-bg-success' : (downloading ? 'text-bg-warning' : 'text-bg-danger');
         const progressBar = downloading ? `
             <div class="progress mt-2" style="height: 8px;">
@@ -56,22 +67,30 @@
             <div class="small text-muted mt-1">已下载 ${downloaded} / ${total} · 速度 ${speed} · 剩余 ${eta}</div>
         ` : '';
         const action = (!installed && !downloading && canDownload)
-            ? `<button type="button" class="btn btn-sm btn-warning dep-download-btn" data-tool="${item.id}">下载</button>`
+            ? `<button type="button" class="btn btn-sm btn-warning dep-download-btn" data-tool="${escapeHtml(item.id)}">下载</button>`
             : '';
-        const configured = item.configured ? `<div class="small text-muted mt-1">当前配置：${$('<div/>').text(item.configured).html()}</div>` : '';
+        const configured = item.configured
+            ? `<div class="small text-muted mt-1">当前配置：${escapeHtml(item.configured)}</div>`
+            : '';
         const targetPath = item.targetPath
-            ? `<div class="small text-muted mt-1">目标位置：<code>${$('<div/>').text(item.targetPath).html()}</code></div>`
+            ? `<div class="small text-muted mt-1">目标位置：<code>${escapeHtml(item.targetPath)}</code></div>`
+            : '';
+        const downloadUrl = normalizeDownloadUrl(item.downloadUrl);
+        const manualDownload = downloadUrl
+            ? `<div class="small text-muted mt-1">下载地址：<a href="${escapeHtml(downloadUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(downloadUrl)}</a></div>
+               <div class="small text-muted">若自动下载较慢，可手动下载后放到上面的目标位置。</div>`
             : '';
         return `
             <div class="border rounded p-3 mb-2">
                 <div class="d-flex align-items-center justify-content-between gap-2">
-                    <div class="fw-semibold">${$('<div/>').text(item.name || item.id || '依赖').html()}</div>
+                    <div class="fw-semibold">${escapeHtml(item.name || item.id || '依赖')}</div>
                     <span class="badge ${statusClass}">${statusText}</span>
                 </div>
-                <div class="small mt-1">${$('<div/>').text(item.message || '').html()}</div>
+                <div class="small mt-1">${escapeHtml(item.message || '')}</div>
                 ${progressBar}
                 ${configured}
                 ${targetPath}
+                ${manualDownload}
                 <div class="mt-2">${action}</div>
             </div>
         `;
@@ -116,7 +135,7 @@
                 }
                 return false;
             }
-            const hasDownloading = attentionItems.some((item) => item.downloading);
+            const hasDownloading = attentionItems.some((entry) => entry.downloading);
             pollingMs = hasDownloading ? 1000 : 5000;
             const listHtml = attentionItems.map(renderItem).join('');
             $root

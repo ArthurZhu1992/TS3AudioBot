@@ -95,6 +95,7 @@ public final class DependencyToolService {
         DownloadState state = states.get(TOOL_YTDLP);
         boolean downloading = state != null && state.running;
         boolean downloadSupported = ytdlpDownloadUrl() != null;
+        String downloadUrl = ytdlpDownloadUrl();
         boolean ytAvailable = downloading ? false : isCommandAvailableCached("yt|" + ytResolved, ytResolved, "--version");
         boolean ytmAvailable = downloading ? false : isCommandAvailableCached("ytm|" + ytmResolved, ytmResolved, "--version");
         boolean filePresent = isFilePresent(targetPath);
@@ -116,7 +117,8 @@ public final class DependencyToolService {
             message,
             downloadSupported,
             "yt=" + ytCommand + ", ytmusic=" + ytmCommand,
-            targetPath == null ? "" : targetPath.toString()
+            targetPath == null ? "" : targetPath.toString(),
+            downloadUrl == null ? "" : downloadUrl
         );
     }
 
@@ -129,6 +131,7 @@ public final class DependencyToolService {
         boolean runnable = downloading ? false : isCommandAvailableCached("ffmpeg|" + resolved, resolved, "-version");
         boolean filePresent = isFilePresent(targetPath);
         boolean installed = filePresent || runnable;
+        String downloadUrl = ffmpegDownloadUrl();
         if (installed && state != null && !state.running) {
             states.remove(TOOL_FFMPEG);
         }
@@ -146,7 +149,8 @@ public final class DependencyToolService {
             message,
             ffmpegDownloadUrl() != null,
             command,
-            targetPath == null ? "" : targetPath.toString()
+            targetPath == null ? "" : targetPath.toString(),
+            downloadUrl == null ? "" : downloadUrl
         );
     }
 
@@ -867,7 +871,8 @@ public final class DependencyToolService {
         String message,
         boolean canDownload,
         String configured,
-        String targetPath
+        String targetPath,
+        String downloadUrl
     ) {
     }
 

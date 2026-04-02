@@ -85,7 +85,7 @@ public final class FfmpegLocator {
             throw new IllegalStateException("Unsupported platform for bundled ffmpeg: os="
                 + System.getProperty("os.name") + " arch=" + System.getProperty("os.arch"));
         }
-        return ensureFfmpegAvailable(ffmpegDir, "ffmpeg", os, arch, autoDownload, true);
+        return ensureFfmpegAvailable(ffmpegDir, "ffmpeg", os, arch, autoDownload, autoDownload);
     }
 
     private static boolean isAuto(String value) {

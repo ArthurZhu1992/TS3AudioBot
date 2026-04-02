@@ -57,6 +57,7 @@ public final class ConfigService {
     private static final boolean DEFAULT_MEDIA_CACHE_ENABLED = true;
     private static final boolean DEFAULT_MEDIA_AUDIO_CACHE_ENABLED = true;
     private static final int DEFAULT_MEDIA_MAX_SIZE_GB = 20;
+    private static final int DEFAULT_MEDIA_CACHE_TTL_HOURS = 24 * 30;
     private static final int DEFAULT_WEB_PORT = 58913;
     private static final List<String> DEFAULT_HOSTS = List.of("*");
     private static final String DEFAULT_CLIENT_VERSION = "3.6.2 [Build: 1695203293]";
@@ -84,10 +85,16 @@ public final class ConfigService {
     private static final String KEY_MEDIA_CACHE_ENABLED = "media.cache_enabled";
     private static final String KEY_MEDIA_AUDIO_CACHE_ENABLED = "media.audio_cache_enabled";
     private static final String KEY_MEDIA_MAX_SIZE_GB = "media.max_size_gb";
+    private static final String KEY_MEDIA_CACHE_TTL_HOURS = "media.cache_ttl_hours";
     private static final String KEY_STORAGE_DATA_DIR = "storage.data_dir";
     private static final String KEY_STORAGE_QUEUE_FILE = "storage.queue_file";
     private static final String KEY_CACHE_YTDLP_TEMP_DIR = "cache.ytdlp_temp_dir";
     private static final String KEY_CACHE_YTDLP_CACHE_DIR = "cache.ytdlp_cache_dir";
+    private static final String KEY_PATHS_FFMPEG = "paths.ffmpeg";
+    private static final String KEY_PATHS_YT = "paths.yt";
+    private static final String KEY_PATHS_YTMUSIC = "paths.ytmusic";
+    private static final String KEY_PATHS_NETEASE = "paths.netease";
+    private static final String KEY_PATHS_QQ = "paths.qq";
 
     private static final Pattern INI_KEY_VALUE = Pattern.compile("^([^=]+)=(.*)$");
 
@@ -225,7 +232,8 @@ public final class ConfigService {
             new AppConfig.Media(
                 resolved.mediaCacheEnabled,
                 resolved.mediaAudioCacheEnabled,
-                resolved.mediaMaxSizeGb
+                resolved.mediaMaxSizeGb,
+                resolved.mediaCacheTtlHours
             ),
             new AppConfig.Resolvers(new AppConfig.ExternalResolvers(
                 resolved.yt,
@@ -253,6 +261,11 @@ public final class ConfigService {
             DEFAULT_MEDIA_AUDIO_CACHE_ENABLED
         );
         int mediaMaxSizeGb = Math.max(1, parseIntSetting(settings, KEY_MEDIA_MAX_SIZE_GB, DEFAULT_MEDIA_MAX_SIZE_GB));
+        int mediaCacheTtlHours = Math.max(1, parseIntSetting(
+            settings,
+            KEY_MEDIA_CACHE_TTL_HOURS,
+            DEFAULT_MEDIA_CACHE_TTL_HOURS
+        ));
 
         String ffmpegPathRaw = getSetting(settings, KEY_FFMPEG, DEFAULT_FFMPEG_PATH);
         String ffmpegPath = FfmpegLocator.resolve(ffmpegPathRaw, configPath, autoDownload);
@@ -280,7 +293,8 @@ public final class ConfigService {
             searchCacheSeconds,
             mediaCacheEnabled,
             mediaAudioCacheEnabled,
-            mediaMaxSizeGb
+            mediaMaxSizeGb,
+            mediaCacheTtlHours
         );
     }
 
@@ -437,6 +451,13 @@ public final class ConfigService {
             putIfNotBlank(settings, KEY_RESOLVER_YTMUSIC, toml.getString("resolvers.external.ytmusic"));
             putIfNotBlank(settings, KEY_RESOLVER_NETEASE, toml.getString("resolvers.external.netease"));
             putIfNotBlank(settings, KEY_RESOLVER_QQ, toml.getString("resolvers.external.qq"));
+            // New unified path section; values here override legacy sections when both exist.
+            putIfNotBlank(settings, KEY_PATHS_FFMPEG, toml.getString("paths.ffmpeg"));
+            putIfNotBlank(settings, KEY_PATHS_YT, toml.getString("paths.yt"));
+            putIfNotBlank(settings, KEY_PATHS_YTMUSIC, toml.getString("paths.ytmusic"));
+            putIfNotBlank(settings, KEY_PATHS_NETEASE, toml.getString("paths.netease"));
+            putIfNotBlank(settings, KEY_PATHS_QQ, toml.getString("paths.qq"));
+            applyUnifiedPathOverrides(settings);
             putIfNotBlank(settings, KEY_SEARCH_SECRET, toml.getString("search.auth_secret"));
             Long cacheSeconds = toml.getLong("search.cache_seconds");
             if (cacheSeconds != null) {
@@ -447,6 +468,10 @@ public final class ConfigService {
             Long mediaMaxSizeGb = toml.getLong("media.max_size_gb");
             if (mediaMaxSizeGb != null) {
                 settings.put(KEY_MEDIA_MAX_SIZE_GB, Long.toString(mediaMaxSizeGb));
+            }
+            Long mediaCacheTtlHours = toml.getLong("media.cache_ttl_hours");
+            if (mediaCacheTtlHours != null) {
+                settings.put(KEY_MEDIA_CACHE_TTL_HOURS, Long.toString(mediaCacheTtlHours));
             }
             putIfNotBlank(settings, KEY_CACHE_YTDLP_TEMP_DIR, toml.getString("cache.ytdlp_temp_dir"));
             putIfNotBlank(settings, KEY_CACHE_YTDLP_CACHE_DIR, toml.getString("cache.ytdlp_cache_dir"));
@@ -478,11 +503,18 @@ public final class ConfigService {
         putSpring(settings, KEY_RESOLVER_YTMUSIC, environment, "ts3audiobot.resolvers.external.ytmusic");
         putSpring(settings, KEY_RESOLVER_NETEASE, environment, "ts3audiobot.resolvers.external.netease");
         putSpring(settings, KEY_RESOLVER_QQ, environment, "ts3audiobot.resolvers.external.qq");
+        putSpring(settings, KEY_PATHS_FFMPEG, environment, "ts3audiobot.paths.ffmpeg");
+        putSpring(settings, KEY_PATHS_YT, environment, "ts3audiobot.paths.yt");
+        putSpring(settings, KEY_PATHS_YTMUSIC, environment, "ts3audiobot.paths.ytmusic");
+        putSpring(settings, KEY_PATHS_NETEASE, environment, "ts3audiobot.paths.netease");
+        putSpring(settings, KEY_PATHS_QQ, environment, "ts3audiobot.paths.qq");
+        applyUnifiedPathOverrides(settings);
         putSpring(settings, KEY_SEARCH_SECRET, environment, "ts3audiobot.search.auth-secret");
         putSpring(settings, KEY_SEARCH_CACHE_SECONDS, environment, "ts3audiobot.search.cache-seconds");
         putSpring(settings, KEY_MEDIA_CACHE_ENABLED, environment, "ts3audiobot.media.cache-enabled");
         putSpring(settings, KEY_MEDIA_AUDIO_CACHE_ENABLED, environment, "ts3audiobot.media.audio-cache-enabled");
         putSpring(settings, KEY_MEDIA_MAX_SIZE_GB, environment, "ts3audiobot.media.max-size-gb");
+        putSpring(settings, KEY_MEDIA_CACHE_TTL_HOURS, environment, "ts3audiobot.media.cache-ttl-hours");
         putSpring(settings, KEY_STORAGE_DATA_DIR, environment, "ts3audiobot.storage.data-dir");
         putSpring(settings, KEY_STORAGE_QUEUE_FILE, environment, "ts3audiobot.storage.queue-file");
         putSpring(settings, KEY_CACHE_YTDLP_TEMP_DIR, environment, "ts3audiobot.cache.ytdlp-temp-dir");
@@ -502,6 +534,25 @@ public final class ConfigService {
             return;
         }
         settings.put(key, value.trim());
+    }
+
+    private static void applyUnifiedPathOverrides(Map<String, String> settings) {
+        if (settings == null || settings.isEmpty()) {
+            return;
+        }
+        copyIfPresent(settings, KEY_PATHS_FFMPEG, KEY_FFMPEG);
+        copyIfPresent(settings, KEY_PATHS_YT, KEY_RESOLVER_YT);
+        copyIfPresent(settings, KEY_PATHS_YTMUSIC, KEY_RESOLVER_YTMUSIC);
+        copyIfPresent(settings, KEY_PATHS_NETEASE, KEY_RESOLVER_NETEASE);
+        copyIfPresent(settings, KEY_PATHS_QQ, KEY_RESOLVER_QQ);
+    }
+
+    private static void copyIfPresent(Map<String, String> settings, String fromKey, String toKey) {
+        String value = settings.get(fromKey);
+        if (value == null || value.isBlank()) {
+            return;
+        }
+        settings.put(toKey, value.trim());
     }
 
     private static String getSpringProperty(Environment environment, String name) {
@@ -874,7 +925,8 @@ public final class ConfigService {
         int searchCacheSeconds,
         boolean mediaCacheEnabled,
         boolean mediaAudioCacheEnabled,
-        int mediaMaxSizeGb
+        int mediaMaxSizeGb,
+        int mediaCacheTtlHours
     ) {
     }
 

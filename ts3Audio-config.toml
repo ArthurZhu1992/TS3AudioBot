@@ -15,10 +15,10 @@ enabled = false
 enabled = true
 
 [tools]
-ffmpeg_path = "ffmpeg"
-auto_download = true
+auto_download = false
 
-[resolvers.external]
+[paths]
+ffmpeg = "ffmpeg"
 yt = "yt-dlp"
 ytmusic = "yt-dlp"
 netease = "netease-cloud-music"
@@ -32,3 +32,4 @@ cache_seconds = 120
 cache_enabled = true
 audio_cache_enabled = true
 max_size_gb = 20
+cache_ttl_hours = 720

@@ -217,17 +217,20 @@ public final class AppConfig {
         public final boolean cacheEnabled;
         public final boolean audioCacheEnabled;
         public final int maxSizeGb;
+        public final int cacheTtlHours;
 
         /**
          * 创建 Media 实例。
          * @param cacheEnabled 参数 cacheEnabled
          * @param audioCacheEnabled 参数 audioCacheEnabled
          * @param maxSizeGb 参数 maxSizeGb
+         * @param cacheTtlHours 参数 cacheTtlHours
          */
-        public Media(boolean cacheEnabled, boolean audioCacheEnabled, int maxSizeGb) {
+        public Media(boolean cacheEnabled, boolean audioCacheEnabled, int maxSizeGb, int cacheTtlHours) {
             this.cacheEnabled = cacheEnabled;
             this.audioCacheEnabled = audioCacheEnabled;
             this.maxSizeGb = maxSizeGb;
+            this.cacheTtlHours = cacheTtlHours;
         }
     }
 
