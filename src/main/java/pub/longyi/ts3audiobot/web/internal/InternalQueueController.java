@@ -404,11 +404,8 @@ public final class InternalQueueController {
             return track;
         }
         String sourceType = track.sourceType();
-        if (sourceType != null) {
-            String lower = sourceType.trim().toLowerCase();
-            if (lower.equals("yt") || lower.equals("ytmusic")) {
-                return track;
-            }
+        if (sourceType != null && !sourceType.isBlank()) {
+            return track;
         }
         if (website.equalsIgnoreCase(track.sourceType())) {
             return track;
