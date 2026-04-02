@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import pub.longyi.ts3audiobot.search.SearchModels.SearchItem;
 import pub.longyi.ts3audiobot.search.SearchModels.SearchPage;
+import pub.longyi.ts3audiobot.util.RuntimeToolPathResolver;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -22,13 +23,13 @@ public abstract class YtDlpSearchProvider implements SearchProvider {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final String source;
-    private final String command;
+    private final String configuredCommand;
     private final Path tempDirPath;
     private final Path cacheDirPath;
 
     protected YtDlpSearchProvider(String source, String command, Path tempDirPath, Path cacheDirPath) {
         this.source = source;
-        this.command = command;
+        this.configuredCommand = command;
         this.tempDirPath = tempDirPath;
         this.cacheDirPath = cacheDirPath;
     }
@@ -39,7 +40,7 @@ public abstract class YtDlpSearchProvider implements SearchProvider {
     }
 
     protected String command() {
-        return command;
+        return RuntimeToolPathResolver.resolveYtDlpCommand(configuredCommand);
     }
 
     @Override
@@ -65,6 +66,7 @@ public abstract class YtDlpSearchProvider implements SearchProvider {
     @Override
     public SearchPage search(SearchRequest request) {
         String query = request.query();
+        String command = command();
         if (command == null || command.isBlank() || query == null || query.isBlank()) {
             return new SearchPage(List.of(), request.page(), request.pageSize(), 0);
         }

@@ -5,6 +5,7 @@ import pub.longyi.ts3audiobot.config.ConfigService;
 import pub.longyi.ts3audiobot.queue.Track;
 import pub.longyi.ts3audiobot.ts3.Ts3VoiceClient;
 import pub.longyi.ts3audiobot.ts3.full.TsFullClient;
+import pub.longyi.ts3audiobot.util.RuntimeToolPathResolver;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -338,9 +339,9 @@ public final class FfmpegAudioEngine implements AudioEngine {
     private String resolveYtCommand(String sourceType) {
         String normalized = normalizeSourceType(sourceType);
         if (SOURCE_YTMUSIC.equals(normalized)) {
-            return ytMusicPath;
+            return RuntimeToolPathResolver.resolveYtDlpCommand(ytMusicPath);
         }
-        return ytDlpPath;
+        return RuntimeToolPathResolver.resolveYtDlpCommand(ytDlpPath);
     }
 
     private String normalizeSourceType(String sourceType) {

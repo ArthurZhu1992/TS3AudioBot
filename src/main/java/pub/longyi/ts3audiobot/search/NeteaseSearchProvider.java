@@ -21,6 +21,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -349,20 +350,48 @@ public final class NeteaseSearchProvider implements SearchProvider {
             return new AccountProfile("", "", 0, "", 0, 0);
         }
         JsonNode account = postWeapi("/weapi/w/nuser/account/get", Map.of(), cookie).body();
-        JsonNode profile = account.path("profile");
-        String userId = profile.path("userId").asText("");
-        if (userId.isBlank()) {
-            userId = account.path("account").path("id").asText("");
+        return parseAccountProfile(account);
+    }
+
+    HeartbeatResult heartbeatAuth(SearchAuthStore.AuthRecord auth) {
+        if (auth == null || auth.cookie() == null || auth.cookie().isBlank()) {
+            return HeartbeatResult.invalid("missing cookie");
         }
-        String nickname = profile.path("nickname").asText("");
-        int vipType = profile.path("vipType").asInt(account.path("account").path("vipType").asInt(0));
-        int redVipLevel = profile.path("redVipLevel").asInt(0);
-        int code = account.path("code").asInt(0);
-        String message = account.path("message").asText("");
-        if (message.isBlank()) {
-            message = account.path("msg").asText("");
+        try {
+            NeteaseResponse response = postWeapi("/weapi/w/nuser/account/get", Map.of(), auth.cookie());
+            String mergedCookie = response.cookie();
+            String finalCookie = mergedCookie == null || mergedCookie.isBlank() ? auth.cookie() : mergedCookie;
+            AccountProfile profile = parseAccountProfile(response.body());
+            if (profile.userId().isBlank() && profile.nickname().isBlank()) {
+                if (profile.code() == 0 && profile.message().isBlank()) {
+                    return HeartbeatResult.skipped("empty_profile");
+                }
+                return HeartbeatResult.invalid(profile.message().isBlank() ? "empty_profile" : profile.message());
+            }
+            if (isInvalidAccountProfile(profile)) {
+                return HeartbeatResult.invalid(profile.message().isBlank() ? "invalid_account" : profile.message());
+            }
+            Map<String, String> extra = parsePayload(auth.extraJson());
+            extra.put("userId", profile.userId());
+            extra.put("nickname", profile.nickname());
+            extra.put("vipType", Integer.toString(profile.vipType()));
+            extra.put("redVipLevel", Integer.toString(profile.redVipLevel()));
+            extra.put("heartbeatAt", Instant.now().toString());
+            SearchAuthStore.AuthRecord refreshed = new SearchAuthStore.AuthRecord(
+                auth.source(),
+                auth.scopeType(),
+                auth.botId(),
+                finalCookie,
+                auth.token(),
+                toJson(extra),
+                null,
+                Instant.now()
+            );
+            return HeartbeatResult.refreshed(refreshed);
+        } catch (Exception ex) {
+            log.debug("[Search:netease] heartbeat failed scope={} bot={}", auth.scopeType(), auth.botId(), ex);
+            return HeartbeatResult.skipped("exception");
         }
-        return new AccountProfile(userId, nickname, code, message, vipType, redVipLevel);
     }
 
     private String resolveUserId(SearchAuthStore.AuthRecord auth) {
@@ -629,6 +658,42 @@ public final class NeteaseSearchProvider implements SearchProvider {
         return "";
     }
 
+    private AccountProfile parseAccountProfile(JsonNode account) {
+        JsonNode profile = account.path("profile");
+        String userId = profile.path("userId").asText("");
+        if (userId.isBlank()) {
+            userId = account.path("account").path("id").asText("");
+        }
+        String nickname = profile.path("nickname").asText("");
+        int vipType = profile.path("vipType").asInt(account.path("account").path("vipType").asInt(0));
+        int redVipLevel = profile.path("redVipLevel").asInt(0);
+        int code = account.path("code").asInt(0);
+        String message = account.path("message").asText("");
+        if (message.isBlank()) {
+            message = account.path("msg").asText("");
+        }
+        return new AccountProfile(userId, nickname, code, message, vipType, redVipLevel);
+    }
+
+    private boolean isInvalidAccountProfile(AccountProfile profile) {
+        if (profile == null) {
+            return true;
+        }
+        int code = profile.code();
+        if (code == 301 || code == 302 || code == 401 || code == 403) {
+            return true;
+        }
+        String message = profile.message();
+        if (message == null || message.isBlank()) {
+            return false;
+        }
+        return message.contains("未登录")
+            || message.contains("登录失效")
+            || message.contains("过期")
+            || message.contains("无权限")
+            || message.toLowerCase(Locale.ROOT).contains("forbidden");
+    }
+
     private VipTrackInfo resolveTrackVipInfo(JsonNode song) {
         if (song == null || song.isMissingNode()) {
             return new VipTrackInfo(null, "未识别到歌曲权限信息");
@@ -691,5 +756,24 @@ public final class NeteaseSearchProvider implements SearchProvider {
     }
 
     private record VipTrackInfo(Boolean vipRequired, String vipHint) {
+    }
+
+    record HeartbeatResult(
+        boolean refreshed,
+        boolean invalid,
+        SearchAuthStore.AuthRecord authRecord,
+        String message
+    ) {
+        static HeartbeatResult refreshed(SearchAuthStore.AuthRecord authRecord) {
+            return new HeartbeatResult(true, false, authRecord, "ok");
+        }
+
+        static HeartbeatResult skipped(String message) {
+            return new HeartbeatResult(false, false, null, message == null ? "" : message);
+        }
+
+        static HeartbeatResult invalid(String message) {
+            return new HeartbeatResult(false, true, null, message == null ? "" : message);
+        }
     }
 }

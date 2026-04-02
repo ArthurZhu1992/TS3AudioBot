@@ -2,6 +2,7 @@ package pub.longyi.ts3audiobot.resolver;
 
 import lombok.extern.slf4j.Slf4j;
 import pub.longyi.ts3audiobot.queue.Track;
+import pub.longyi.ts3audiobot.util.RuntimeToolPathResolver;
 import pub.longyi.ts3audiobot.util.IdGenerator;
 
 import java.io.BufferedReader;
@@ -114,7 +115,7 @@ public final class ExternalCliResolver implements TrackResolver {
 
     private List<String> buildArgs(String query) {
         List<String> args = new ArrayList<>();
-        args.add(command);
+        args.add(resolveExecutableCommand(command));
         String lower = command.toLowerCase();
         if (lower.contains("yt-dlp") || lower.contains("youtube-dl")) {
             String queryArg = normalizeQqQuery(query);
@@ -143,6 +144,17 @@ public final class ExternalCliResolver implements TrackResolver {
             args.add(query);
         }
         return args;
+    }
+
+    private String resolveExecutableCommand(String configured) {
+        if (configured == null || configured.isBlank()) {
+            return configured;
+        }
+        String lower = configured.toLowerCase(Locale.ROOT);
+        if (lower.contains("yt-dlp") || lower.contains("youtube-dl") || "yt-dlp".equals(lower) || "auto".equals(lower)) {
+            return RuntimeToolPathResolver.resolveYtDlpCommand(configured);
+        }
+        return configured;
     }
 
     private String normalizeQqQuery(String query) {

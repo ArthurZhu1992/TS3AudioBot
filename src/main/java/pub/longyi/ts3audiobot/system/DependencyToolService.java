@@ -4,16 +4,18 @@ import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import pub.longyi.ts3audiobot.config.ConfigService;
+import pub.longyi.ts3audiobot.util.RuntimeToolPathResolver;
 
 import java.io.BufferedInputStream;
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -33,6 +35,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
+import javax.net.ssl.SSLHandshakeException;
 
 @Slf4j
 @Component
@@ -86,12 +89,19 @@ public final class DependencyToolService {
     private DependencyStatusItem buildYtDlpStatus() {
         String ytCommand = safe(configService.get().resolvers.external.yt);
         String ytmCommand = safe(configService.get().resolvers.external.ytmusic);
+        String ytResolved = RuntimeToolPathResolver.resolveYtDlpCommand(ytCommand);
+        String ytmResolved = RuntimeToolPathResolver.resolveYtDlpCommand(ytmCommand);
+        Path targetPath = resolveYtDlpTargetPath();
         DownloadState state = states.get(TOOL_YTDLP);
         boolean downloading = state != null && state.running;
         boolean downloadSupported = ytdlpDownloadUrl() != null;
-        boolean ytAvailable = downloading ? false : isCommandAvailableCached("yt|" + ytCommand, ytCommand, "--version");
-        boolean ytmAvailable = downloading ? false : isCommandAvailableCached("ytm|" + ytmCommand, ytmCommand, "--version");
-        boolean installed = ytAvailable && ytmAvailable;
+        boolean ytAvailable = downloading ? false : isCommandAvailableCached("yt|" + ytResolved, ytResolved, "--version");
+        boolean ytmAvailable = downloading ? false : isCommandAvailableCached("ytm|" + ytmResolved, ytmResolved, "--version");
+        boolean filePresent = isFilePresent(targetPath);
+        boolean installed = filePresent || (ytAvailable && ytmAvailable);
+        if (installed && state != null && !state.running) {
+            states.remove(TOOL_YTDLP);
+        }
         String message = buildToolMessage(installed, state, "已检测到 yt-dlp");
         return new DependencyStatusItem(
             TOOL_YTDLP,
@@ -104,17 +114,24 @@ public final class DependencyToolService {
             speed(state),
             etaSeconds(state),
             message,
-            requiresRestart(installed, state),
             downloadSupported,
-            "yt=" + ytCommand + ", ytmusic=" + ytmCommand
+            "yt=" + ytCommand + ", ytmusic=" + ytmCommand,
+            targetPath == null ? "" : targetPath.toString()
         );
     }
 
     private DependencyStatusItem buildFfmpegStatus() {
         String command = safe(configService.get().tools.ffmpegPath);
+        String resolved = RuntimeToolPathResolver.resolveFfmpegCommand(command);
+        Path targetPath = resolveFfmpegTargetPath();
         DownloadState state = states.get(TOOL_FFMPEG);
         boolean downloading = state != null && state.running;
-        boolean installed = downloading ? false : isCommandAvailableCached("ffmpeg|" + command, command, "-version");
+        boolean runnable = downloading ? false : isCommandAvailableCached("ffmpeg|" + resolved, resolved, "-version");
+        boolean filePresent = isFilePresent(targetPath);
+        boolean installed = filePresent || runnable;
+        if (installed && state != null && !state.running) {
+            states.remove(TOOL_FFMPEG);
+        }
         String message = buildToolMessage(installed, state, "已检测到 ffmpeg");
         return new DependencyStatusItem(
             TOOL_FFMPEG,
@@ -127,14 +144,10 @@ public final class DependencyToolService {
             speed(state),
             etaSeconds(state),
             message,
-            requiresRestart(installed, state),
             ffmpegDownloadUrl() != null,
-            command
+            command,
+            targetPath == null ? "" : targetPath.toString()
         );
-    }
-
-    private boolean requiresRestart(boolean installed, DownloadState state) {
-        return state != null && state.success && !state.running && !installed;
     }
 
     private String buildToolMessage(boolean installed, DownloadState state, String okMessage) {
@@ -148,13 +161,16 @@ public final class DependencyToolService {
             if ("extracting".equals(state.phase)) {
                 return "下载完成，正在解压...";
             }
+            if ("downloading_fallback".equals(state.phase)) {
+                return "JVM 证书校验失败，已切换系统下载器...";
+            }
             return "正在下载...";
         }
         if (state.errorMessage != null && !state.errorMessage.isBlank()) {
             return state.errorMessage;
         }
         if (state.success) {
-            return "已下载完成，请重启服务后生效";
+            return "已下载完成，正在等待可执行检测";
         }
         return "未检测到可用依赖";
     }
@@ -259,6 +275,11 @@ public final class DependencyToolService {
         HttpResponse<InputStream> response;
         try {
             response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        } catch (IOException ex) {
+            if (isTlsTrustFailure(ex) && trySystemDownloader(url, output, state)) {
+                return;
+            }
+            throw ex;
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             throw new IOException("下载被中断", ex);
@@ -278,6 +299,112 @@ public final class DependencyToolService {
             }
         } finally {
             state.lastUpdatedAt = System.currentTimeMillis();
+        }
+    }
+
+    private boolean trySystemDownloader(String url, Path output, DownloadState state) {
+        state.phase = "downloading_fallback";
+        String downloader = isWindows() ? "curl.exe" : "curl";
+        if (!isCommandRunnable(downloader, "--version")) {
+            return false;
+        }
+        List<String> command = List.of(
+            downloader,
+            "-L",
+            "--fail",
+            "--retry",
+            "3",
+            "--retry-delay",
+            "2",
+            "--connect-timeout",
+            "15",
+            "-o",
+            output.toString(),
+            url
+        );
+        Process process = null;
+        Thread drainer = null;
+        try {
+            process = new ProcessBuilder(command).redirectErrorStream(true).start();
+            Process procRef = process;
+            drainer = new Thread(() -> drainProcessOutput(procRef), "dep-curl-drain-" + state.toolId);
+            drainer.setDaemon(true);
+            drainer.start();
+            while (process.isAlive()) {
+                updateDownloadedFromFile(output, state);
+                Thread.sleep(250L);
+            }
+            if (drainer != null) {
+                drainer.join(1000L);
+            }
+            updateDownloadedFromFile(output, state);
+            return process.exitValue() == 0;
+        } catch (Exception ex) {
+            log.warn("[Deps] system downloader failed tool={} command={}", state.toolId, command, ex);
+            return false;
+        } finally {
+            if (process != null && process.isAlive()) {
+                process.destroyForcibly();
+            }
+        }
+    }
+
+    private void drainProcessOutput(Process process) {
+        if (process == null) {
+            return;
+        }
+        try (BufferedReader reader = new BufferedReader(
+            new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+            while (reader.readLine() != null) {
+                // Drain combined output to avoid process blocking.
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void updateDownloadedFromFile(Path file, DownloadState state) {
+        if (file == null || state == null) {
+            return;
+        }
+        try {
+            if (Files.isRegularFile(file)) {
+                state.downloadedBytes = Files.size(file);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private boolean isTlsTrustFailure(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof SSLHandshakeException) {
+                return true;
+            }
+            String text = current.getMessage();
+            if (text != null && (text.contains("PKIX") || text.contains("certification path"))) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private boolean isCommandRunnable(String command, String arg) {
+        Process process = null;
+        try {
+            process = new ProcessBuilder(command, arg).redirectErrorStream(true).start();
+            boolean finished = process.waitFor(2, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                return false;
+            }
+            return process.exitValue() == 0;
+        } catch (Exception ex) {
+            return false;
+        } finally {
+            if (process != null && process.isAlive()) {
+                process.destroyForcibly();
+            }
         }
     }
 
@@ -302,7 +429,10 @@ public final class DependencyToolService {
         }
         Path explicit = resolveConfiguredPath(normalized);
         if (explicit != null) {
-            return Files.isRegularFile(explicit);
+            if (!Files.isRegularFile(explicit)) {
+                return false;
+            }
+            normalized = explicit.toString();
         }
         ProcessBuilder pb = new ProcessBuilder(normalized, versionArg);
         pb.redirectErrorStream(true);
@@ -320,14 +450,13 @@ public final class DependencyToolService {
     }
 
     private Path resolveYtDlpTargetPath() {
-        String exe = isWindows() ? "yt-dlp.exe" : "yt-dlp";
         String yt = safe(configService.get().resolvers.external.yt);
         String ytm = safe(configService.get().resolvers.external.ytmusic);
         Path configured = chooseWritableConfiguredPath(List.of(yt, ytm));
         if (configured != null) {
             return configured;
         }
-        return baseDir().resolve("yt-dlp").resolve(exe);
+        return RuntimeToolPathResolver.defaultYtDlpTarget();
     }
 
     private Path resolveFfmpegInstallDir() {
@@ -346,6 +475,15 @@ public final class DependencyToolService {
             }
         }
         return baseDir().resolve("ffmpeg");
+    }
+
+    private Path resolveFfmpegTargetPath() {
+        Path bundled = RuntimeToolPathResolver.findBundledFfmpeg();
+        if (bundled != null) {
+            return bundled;
+        }
+        Path installDir = resolveFfmpegInstallDir();
+        return installDir.resolve(isWindows() ? "ffmpeg.exe" : "ffmpeg");
     }
 
     private Path chooseWritableConfiguredPath(List<String> rawCommands) {
@@ -386,29 +524,7 @@ public final class DependencyToolService {
         if ("ffmpeg".equalsIgnoreCase(value) || "auto".equalsIgnoreCase(value) || "yt-dlp".equalsIgnoreCase(value)) {
             return null;
         }
-        if (!looksLikePath(value)) {
-            return null;
-        }
-        try {
-            Path candidate = Path.of(value);
-            if (!candidate.isAbsolute()) {
-                candidate = baseDir().resolve(candidate).normalize();
-            }
-            return candidate;
-        } catch (Exception ex) {
-            return null;
-        }
-    }
-
-    private boolean looksLikePath(String value) {
-        String text = safe(value);
-        if (text.contains("\\") || text.contains("/")) {
-            return true;
-        }
-        if (text.matches("^[A-Za-z]:.*")) {
-            return true;
-        }
-        return text.endsWith(".exe") || text.endsWith(".bin");
+        return RuntimeToolPathResolver.explicitPath(value);
     }
 
     private boolean isLikelyDirectory(String value) {
@@ -575,7 +691,7 @@ public final class DependencyToolService {
     }
 
     private Path baseDir() {
-        return Path.of(System.getProperty("user.dir", ".")).toAbsolutePath().normalize();
+        return RuntimeToolPathResolver.baseDir();
     }
 
     private String normalizeToolId(String toolId) {
@@ -584,6 +700,10 @@ public final class DependencyToolService {
 
     private String safe(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private boolean isFilePresent(Path path) {
+        return path != null && Files.isRegularFile(path);
     }
 
     private void setExecutableIfNeeded(Path path) {
@@ -745,9 +865,9 @@ public final class DependencyToolService {
         long speedBytesPerSecond,
         Long etaSeconds,
         String message,
-        boolean restartRequired,
         boolean canDownload,
-        String configured
+        String configured,
+        String targetPath
     ) {
     }
 

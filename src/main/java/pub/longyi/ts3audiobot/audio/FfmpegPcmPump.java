@@ -1,6 +1,7 @@
 package pub.longyi.ts3audiobot.audio;
 
 import lombok.extern.slf4j.Slf4j;
+import pub.longyi.ts3audiobot.util.RuntimeToolPathResolver;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -342,7 +343,7 @@ public final class FfmpegPcmPump {
 
     private List<String> buildCommand(String input, long startMs) {
         List<String> cmd = new ArrayList<>();
-        cmd.add(ffmpegPath);
+        cmd.add(RuntimeToolPathResolver.resolveFfmpegCommand(ffmpegPath));
         cmd.add(FFMPEG_ARG_HIDE_BANNER);
         cmd.add(FFMPEG_ARG_NO_STATS);
         cmd.add(FFMPEG_ARG_THREADS);
