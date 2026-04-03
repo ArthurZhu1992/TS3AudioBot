@@ -252,25 +252,36 @@ public final class FfmpegAudioEngine implements AudioEngine {
 
     private void updateChannelBitrate() {
         if (!voiceClient.isConnected()) {
+            log.info("[Audio] channel codec query skipped: voice client not connected");
             return;
         }
         if (!(voiceClient instanceof TsFullClient fullClient)) {
+            log.info("[Audio] channel codec query skipped: voice client is not full ts3 client");
             return;
         }
+        log.info("[Audio] channel codec query before play");
         TsFullClient.ChannelCodecInfo codecInfo = fullClient.fetchChannelCodecInfo();
         if (codecInfo == null) {
+            log.warn("[Audio] channel codec query failed: empty result, keep current encoder bitrate");
             return;
         }
         int bitrate = resolveBitrate(codecInfo.codec(), codecInfo.quality());
         if (opusEncoder instanceof ConcentusOpusEncoder encoder) {
             encoder.setBitrate(bitrate);
             log.info(
-                "[Audio] channel codec={} quality={} bitrate={}bps",
+                "[Audio] channel codec query result codec={} quality={} bitrate={}bps",
                 codecInfo.codec(),
                 codecInfo.quality(),
                 bitrate
             );
+            return;
         }
+        log.info(
+            "[Audio] channel codec query result codec={} quality={} bitrate={}bps encoder=unsupported_dynamic_set",
+            codecInfo.codec(),
+            codecInfo.quality(),
+            bitrate
+        );
     }
 
     private void startPump(Track track, long positionMs) {

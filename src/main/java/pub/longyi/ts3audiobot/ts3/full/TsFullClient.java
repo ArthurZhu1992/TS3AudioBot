@@ -16,6 +16,8 @@ import pub.longyi.ts3audiobot.ts3.util.QuickLZ;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.awt.Graphics2D;
 import java.awt.Image;
 import java.awt.RenderingHints;
@@ -23,6 +25,7 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.BufferedOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -85,6 +88,9 @@ public final class TsFullClient implements Ts3VoiceClient {
     private volatile Consumer<ParsedCommand> errorListener;
     private volatile Runnable loginListener;
     private volatile Consumer<String> stopListener;
+    private volatile FileTransferInitPayload lastFileTransferInitPayload;
+    private volatile int resolvedAvatarMaxFileSizeBytes = AVATAR_MAX_FILE_SIZE_BYTES;
+    private volatile boolean avatarMaxFileSizeResolved;
     private int fileTransferId = 1;
 
     private static final int MAX_PACKET_SIZE = 500;
@@ -108,8 +114,18 @@ public final class TsFullClient implements Ts3VoiceClient {
     private static final float AVATAR_JPEG_QUALITY_STEP = 0.07f;
     private static final float AVATAR_SCALE_STEP = 0.85f;
     private static final int AVATAR_SCALE_MAX_ATTEMPTS = 6;
+    private static final int AVATAR_RETRY_MIN_FILE_SIZE_BYTES = 10_000;
+    private static final double AVATAR_RETRY_SCALE_FACTOR = 0.72d;
     private static final int FILE_TRANSFER_CONNECT_TIMEOUT_MS = 5000;
     private static final int FILE_TRANSFER_TIMEOUT_MS = 8000;
+    private static final int FILE_TRANSFER_RESPONSE_TIMEOUT_MS = 1200;
+    private static final int FILE_TRANSFER_RESPONSE_MAX_BYTES = 4096;
+    private static final int FILE_TRANSFER_DEFAULT_PORT = 30033;
+    private static final long FILE_TRANSFER_PAYLOAD_WAIT_MS = 1200L;
+    private static final long FILE_TRANSFER_PAYLOAD_MAX_AGE_MS = 3000L;
+    private static final String ERROR_ID_OK = "0";
+    private static final String ERROR_ID_PERMISSION_DENIED = "2568";
+    private static final String ERROR_MSG_PERMISSION_DENIED = "insufficient client permissions";
 
     /**
      * 执行 configure 操作。
@@ -119,6 +135,8 @@ public final class TsFullClient implements Ts3VoiceClient {
     public void configure(ConnectionDataFull config) {
         this.connectionData = config;
         this.tsCrypt = new TsCrypt(config.identity());
+        this.resolvedAvatarMaxFileSizeBytes = AVATAR_MAX_FILE_SIZE_BYTES;
+        this.avatarMaxFileSizeResolved = false;
     }
 
 
@@ -290,50 +308,174 @@ public final class TsFullClient implements Ts3VoiceClient {
             log.info("[TS3] skip avatar update reason=empty_bytes file={}", avatarFile);
             return false;
         }
-        if (bytes.length > AVATAR_MAX_FILE_SIZE_BYTES) {
+        int uploadLimit = resolveAvatarMaxFileSizeBytes();
+        if (bytes.length > uploadLimit) {
             log.info("[TS3] avatar original bytes={} exceeds limit={}, start compress file={}",
                 bytes.length,
-                AVATAR_MAX_FILE_SIZE_BYTES,
+                uploadLimit,
                 avatarFile
             );
-            bytes = compressAvatarBytes(avatarFile);
+            bytes = compressAvatarBytes(avatarFile, uploadLimit);
         }
-        if (bytes.length <= 0 || bytes.length > AVATAR_MAX_FILE_SIZE_BYTES) {
+        if (bytes.length <= 0 || bytes.length > uploadLimit) {
             log.info("[TS3] skip avatar upload size={} file={}", bytes.length, avatarFile);
             return false;
         }
-        String avatarName = buildAvatarFileName();
-        if (avatarName.isBlank()) {
+        if (buildAvatarFileNames().isEmpty()) {
             return false;
         }
-        Map<String, String> params = TsCommandBuilder.params(
-            "clientftfid", Integer.toString(nextFileTransferId()),
-            "name", avatarName,
-            "cid", "0",
-            "cpw", "",
-            "size", Integer.toString(bytes.length),
-            "overwrite", "1",
-            "resume", "0",
-            "proto", "1"
+        byte[] attemptBytes = bytes;
+        int attempt = 1;
+        while (true) {
+            boolean uploaded = uploadAvatarBytes(avatarFile, attemptBytes);
+            if (uploaded) {
+                return true;
+            }
+            if (attemptBytes.length <= AVATAR_RETRY_MIN_FILE_SIZE_BYTES) {
+                log.warn("[TS3] avatar upload retries exhausted at min bytes={} file={}",
+                    attemptBytes.length,
+                    avatarFile
+                );
+                return false;
+            }
+            int nextLimit = nextAvatarRetryLimit(attemptBytes.length);
+            byte[] retryBytes = compressAvatarBytes(avatarFile, nextLimit);
+            if (retryBytes.length <= 0 || retryBytes.length >= attemptBytes.length) {
+                log.warn("[TS3] avatar retry compress not smaller old={} candidate={} limit={} file={}",
+                    attemptBytes.length,
+                    retryBytes.length,
+                    nextLimit,
+                    avatarFile
+                );
+                return false;
+            }
+            log.info("[TS3] avatar upload retry #{} old={} new={} limit={} file={}",
+                attempt,
+                attemptBytes.length,
+                retryBytes.length,
+                nextLimit,
+                avatarFile
+            );
+            attemptBytes = retryBytes;
+            attempt++;
+        }
+    }
+
+    private int nextAvatarRetryLimit(int currentBytes) {
+        int scaled = (int) Math.floor(currentBytes * AVATAR_RETRY_SCALE_FACTOR);
+        int bounded = Math.max(AVATAR_RETRY_MIN_FILE_SIZE_BYTES, scaled);
+        if (bounded >= currentBytes) {
+            return Math.max(AVATAR_RETRY_MIN_FILE_SIZE_BYTES, currentBytes - 1);
+        }
+        return bounded;
+    }
+
+    private boolean uploadAvatarBytes(Path avatarFile, byte[] bytes) {
+        List<String> avatarNames = buildAvatarFileNames();
+        if (avatarNames.isEmpty()) {
+            return false;
+        }
+        for (String avatarName : avatarNames) {
+            Map<String, String> params = TsCommandBuilder.params(
+                "clientftfid", Integer.toString(nextFileTransferId()),
+                "name", avatarName,
+                "cid", "0",
+                "cpw", "",
+                "size", Integer.toString(bytes.length),
+                "overwrite", "1",
+                "resume", "0",
+                "proto", "1"
+            );
+            CommandResponse response = requestCommandResponse("ftinitupload", params);
+            if (!isCommandSuccess(response)) {
+                log.warn("[TS3] avatar upload init command failed file={} name={}", avatarFile, avatarName);
+                continue;
+            }
+            Map<String, String> parsed = flattenCommandResponse(response == null ? List.of() : response.commands);
+            mergeErrorParams(parsed, response);
+            waitAndMergeFileTransferPayload(parsed);
+            String key = parsed.get("ftkey");
+            Integer port = parseInt(parsed.get("port"));
+            if (port == null || port <= 0) {
+                port = FILE_TRANSFER_DEFAULT_PORT;
+                log.info("[TS3] avatar upload init port missing, fallback default port={}", FILE_TRANSFER_DEFAULT_PORT);
+            }
+            if (key == null || key.isBlank()) {
+                log.info("[TS3] avatar upload init response commands={} error={}",
+                    summarizeCommands(response == null ? List.of() : response.commands),
+                    response == null || response.error == null ? Map.of() : response.error.params()
+                );
+                log.info("[TS3] avatar upload init missing key/port params={}", parsed);
+                continue;
+            }
+            String host = resolveFileTransferHost(parsed.get("ip"));
+            if (host.isBlank()) {
+                continue;
+            }
+            log.info("[TS3] avatar upload init ok host={} port={} bytes={} file={} name={}",
+                host,
+                port,
+                bytes.length,
+                avatarFile,
+                avatarName
+            );
+            boolean uploaded = uploadFileTransferPayload(host, port, key, bytes);
+            if (!uploaded) {
+                continue;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private int resolveAvatarMaxFileSizeBytes() {
+        if (avatarMaxFileSizeResolved) {
+            return resolvedAvatarMaxFileSizeBytes;
+        }
+        List<ParsedCommand> commands = requestCommand(
+            "permget",
+            TsCommandBuilder.params("permsid", "i_client_max_avatar_filesize")
         );
-        CommandResponse response = requestCommandResponse("ftinitupload", params);
-        if (!isCommandSuccess(response)) {
-            log.warn("[TS3] avatar upload init command failed file={}", avatarFile);
-            return false;
+        for (ParsedCommand cmd : commands) {
+            Integer value = parseInt(readField(cmd, "permvalue"));
+            if (value == null) {
+                continue;
+            }
+            if (value <= 0) {
+                // -1 means no explicit permission cap, keep local safety cap.
+                resolvedAvatarMaxFileSizeBytes = AVATAR_MAX_FILE_SIZE_BYTES;
+            } else {
+                resolvedAvatarMaxFileSizeBytes = Math.max(4096, value);
+            }
+            avatarMaxFileSizeResolved = true;
+            log.info("[TS3] resolved avatar max filesize={} bytes", resolvedAvatarMaxFileSizeBytes);
+            break;
         }
-        Map<String, String> parsed = flattenCommandResponse(response == null ? List.of() : response.commands);
-        String key = parsed.get("ftkey");
-        Integer port = parseInt(parsed.get("port"));
-        if (key == null || key.isBlank() || port == null || port <= 0) {
-            log.info("[TS3] avatar upload init missing key/port params={}", parsed);
-            return false;
+        return resolvedAvatarMaxFileSizeBytes;
+    }
+
+    private String summarizeCommands(List<ParsedCommand> commands) {
+        if (commands == null || commands.isEmpty()) {
+            return "[]";
         }
-        String host = resolveFileTransferHost(parsed.get("ip"));
-        if (host.isBlank()) {
-            return false;
+        StringBuilder builder = new StringBuilder("[");
+        int limit = Math.min(commands.size(), 8);
+        for (int i = 0; i < limit; i++) {
+            ParsedCommand cmd = commands.get(i);
+            if (i > 0) {
+                builder.append(", ");
+            }
+            if (cmd == null) {
+                builder.append("null");
+                continue;
+            }
+            builder.append(cmd.name()).append(' ').append(cmd.params());
         }
-        log.info("[TS3] avatar upload init ok host={} port={} bytes={} file={}", host, port, bytes.length, avatarFile);
-        return uploadFileTransferPayload(host, port, key, bytes);
+        if (commands.size() > limit) {
+            builder.append(", ...");
+        }
+        builder.append(']');
+        return builder.toString();
     }
 
     private byte[] readAvatarBytes(Path avatarFile) {
@@ -349,6 +491,13 @@ public final class TsFullClient implements Ts3VoiceClient {
     }
 
     private byte[] compressAvatarBytes(Path avatarFile) {
+        return compressAvatarBytes(avatarFile, AVATAR_MAX_FILE_SIZE_BYTES);
+    }
+
+    private byte[] compressAvatarBytes(Path avatarFile, int maxBytes) {
+        if (maxBytes <= 0) {
+            return new byte[0];
+        }
         BufferedImage source = readAvatarImage(avatarFile);
         if (source == null) {
             return new byte[0];
@@ -356,10 +505,11 @@ public final class TsFullClient implements Ts3VoiceClient {
         BufferedImage normalized = normalizeImageSize(source);
         BufferedImage working = normalized;
         for (int attempt = 0; attempt < AVATAR_SCALE_MAX_ATTEMPTS; attempt++) {
-            byte[] encoded = encodeJpegWithinLimit(working, AVATAR_MAX_FILE_SIZE_BYTES);
-            if (encoded.length > 0 && encoded.length <= AVATAR_MAX_FILE_SIZE_BYTES) {
-                log.info("[TS3] avatar compress success bytes={} width={} height={} attempt={} file={}",
+            byte[] encoded = encodeJpegWithinLimit(working, maxBytes);
+            if (encoded.length > 0 && encoded.length <= maxBytes) {
+                log.info("[TS3] avatar compress success bytes={} limit={} width={} height={} attempt={} file={}",
                     encoded.length,
+                    maxBytes,
                     working.getWidth(),
                     working.getHeight(),
                     attempt,
@@ -535,16 +685,8 @@ public final class TsFullClient implements Ts3VoiceClient {
         if (channelInfo.isEmpty()) {
             log.warn("[TS3] channelinfo empty cid={}", channelId);
         }
-        String codecStr = null;
-        String qualityStr = null;
-        for (ParsedCommand cmd : channelInfo) {
-            if ("channelinfo".equalsIgnoreCase(cmd.name())) {
-                codecStr = cmd.params().get("channel_codec");
-                qualityStr = cmd.params().get("channel_codec_quality");
-                log.info("[TS3] channelinfo params={}", cmd.params());
-                break;
-            }
-        }
+        String codecStr = extractResponseField(channelInfo, "channel_codec");
+        String qualityStr = extractResponseField(channelInfo, "channel_codec_quality");
         Integer codec = parseInt(codecStr);
         Integer quality = parseInt(qualityStr);
         if (codec == null || quality == null) {
@@ -1204,8 +1346,8 @@ public final class TsFullClient implements Ts3VoiceClient {
         }
         String channelId = null;
         for (ParsedCommand cmd : clientInfo) {
-            if ("clientinfo".equalsIgnoreCase(cmd.name())) {
-                channelId = cmd.params().get("cid");
+            channelId = readField(cmd, "cid");
+            if (channelId != null && !channelId.isBlank()) {
                 break;
             }
         }
@@ -1229,13 +1371,10 @@ public final class TsFullClient implements Ts3VoiceClient {
         }
         String channelId = null;
         for (ParsedCommand cmd : clientList) {
-            if (!"clientlist".equalsIgnoreCase(cmd.name())) {
-                continue;
-            }
-            String clid = cmd.params().get("clid");
+            String clid = readField(cmd, "clid");
             Integer target = parseInt(clid);
             if (target != null && target == clientId) {
-                channelId = cmd.params().get("cid");
+                channelId = readField(cmd, "cid");
                 break;
             }
         }
@@ -1298,7 +1437,7 @@ public final class TsFullClient implements Ts3VoiceClient {
         if (!connected) {
             return null;
         }
-        PendingCommand pending = new PendingCommand(nextReturnCode());
+        PendingCommand pending = new PendingCommand(nextReturnCode(), name);
         synchronized (responseLock) {
             if (pendingCommand != null) {
                 return null;
@@ -1341,13 +1480,14 @@ public final class TsFullClient implements Ts3VoiceClient {
     }
 
     private void collectCommandResponse(ParsedCommand cmd) {
+        captureFileTransferInitPayload(cmd);
         PendingCommand pending = pendingCommand;
         if (pending == null || cmd == null) {
             if (cmd != null && "error".equalsIgnoreCase(cmd.name())) {
                 String returnCodeRaw = cmd.params().get("return_code");
                 String errorId = cmd.params().get("id");
                 String msg = cmd.params().get("msg");
-                log.info("[TS3] error return_code={} id={} msg={}", returnCodeRaw, errorId, msg);
+                logCommandError(null, returnCodeRaw, errorId, msg);
                 Consumer<ParsedCommand> listener = errorListener;
                 if (listener != null) {
                     listener.accept(cmd);
@@ -1360,7 +1500,15 @@ public final class TsFullClient implements Ts3VoiceClient {
             return;
         }
         String lower = name.toLowerCase();
-        if (lower.startsWith("notify") || "initivexpand".equals(lower) || "initivexpand2".equals(lower)) {
+        if (lower.startsWith("notify")) {
+            if (pending != null
+                && "ftinitupload".equalsIgnoreCase(pending.commandName)
+                && isFileTransferInitPayload(cmd)) {
+                pending.commands.add(cmd);
+            }
+            return;
+        }
+        if ("initivexpand".equals(lower) || "initivexpand2".equals(lower)) {
             return;
         }
         if ("initserver".equalsIgnoreCase(name)) {
@@ -1374,7 +1522,10 @@ public final class TsFullClient implements Ts3VoiceClient {
             Integer code = parseInt(returnCodeRaw);
             String errorId = cmd.params().get("id");
             String msg = cmd.params().get("msg");
-            log.info("[TS3] error return_code={} id={} msg={}", returnCodeRaw, errorId, msg);
+            if ("ftinitupload".equalsIgnoreCase(pending.commandName)) {
+                log.info("[TS3] ftinitupload error params={}", cmd.params());
+            }
+            logCommandError(pending.commandName, returnCodeRaw, errorId, msg);
             Consumer<ParsedCommand> listener = errorListener;
             if (listener != null) {
                 listener.accept(cmd);
@@ -1389,7 +1540,157 @@ public final class TsFullClient implements Ts3VoiceClient {
             }
             return;
         }
+        if ("ftinitupload".equalsIgnoreCase(pending.commandName)) {
+            log.info("[TS3] ftinitupload response name={} params={}", name, cmd.params());
+        }
         pending.commands.add(cmd);
+    }
+
+    private void captureFileTransferInitPayload(ParsedCommand cmd) {
+        if (!isFileTransferInitPayload(cmd)) {
+            return;
+        }
+        String key = readField(cmd, "ftkey");
+        Integer port = parseInt(readField(cmd, "port"));
+        String ip = readField(cmd, "ip");
+        if ((key == null || key.isBlank()) && (port == null || port <= 0)) {
+            return;
+        }
+        lastFileTransferInitPayload = new FileTransferInitPayload(
+            key,
+            port == null ? 0 : port,
+            ip,
+            System.currentTimeMillis()
+        );
+    }
+
+    private void logCommandError(String commandName, String returnCodeRaw, String errorId, String msg) {
+        String command = commandName == null || commandName.isBlank() ? "unknown" : commandName;
+        String normalizedErrorId = errorId == null ? "" : errorId.trim();
+        String normalizedMsg = msg == null ? "" : msg.trim();
+        if (ERROR_ID_OK.equals(normalizedErrorId)) {
+            log.debug("[TS3] command ok name={} return_code={} id={} msg={}", command, returnCodeRaw, errorId, msg);
+            return;
+        }
+        if (isBestEffortPermissionDenied(command, normalizedErrorId, normalizedMsg)) {
+            log.debug("[TS3] permission denied name={} return_code={} id={} msg={}",
+                command,
+                returnCodeRaw,
+                errorId,
+                msg
+            );
+            return;
+        }
+        log.info("[TS3] error name={} return_code={} id={} msg={}", command, returnCodeRaw, errorId, msg);
+    }
+
+    private boolean isBestEffortPermissionDenied(String command, String errorId, String msg) {
+        boolean permissionDenied = ERROR_ID_PERMISSION_DENIED.equals(errorId)
+            || ERROR_MSG_PERMISSION_DENIED.equalsIgnoreCase(msg);
+        if (!permissionDenied) {
+            return false;
+        }
+        return "clientlist".equalsIgnoreCase(command)
+            || "channellist".equalsIgnoreCase(command)
+            || "channelinfo".equalsIgnoreCase(command);
+    }
+
+    private boolean isFileTransferInitPayload(ParsedCommand cmd) {
+        if (cmd == null) {
+            return false;
+        }
+        String ftKey = readField(cmd, "ftkey");
+        Integer port = parseInt(readField(cmd, "port"));
+        return (ftKey != null && !ftKey.isBlank()) || (port != null && port > 0);
+    }
+
+    private String extractResponseField(List<ParsedCommand> commands, String key) {
+        if (commands == null || key == null || key.isBlank()) {
+            return null;
+        }
+        for (ParsedCommand cmd : commands) {
+            String value = readField(cmd, key);
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private String readField(ParsedCommand cmd, String key) {
+        if (cmd == null || key == null || key.isBlank()) {
+            return null;
+        }
+        Map<String, String> params = cmd.params();
+        if (params != null) {
+            String value = params.get(key);
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        String token = cmd.name();
+        if (token == null || token.isBlank()) {
+            return null;
+        }
+        int idx = token.indexOf('=');
+        if (idx <= 0 || idx >= token.length() - 1) {
+            return null;
+        }
+        String tokenKey = token.substring(0, idx);
+        if (!key.equals(tokenKey)) {
+            return null;
+        }
+        return token.substring(idx + 1);
+    }
+
+    private void mergeErrorParams(Map<String, String> parsed, CommandResponse response) {
+        if (parsed == null || response == null || response.error == null || response.error.params() == null) {
+            return;
+        }
+        for (Map.Entry<String, String> entry : response.error.params().entrySet()) {
+            String key = entry.getKey();
+            String value = entry.getValue();
+            if (key == null || key.isBlank() || value == null || value.isBlank()) {
+                continue;
+            }
+            parsed.putIfAbsent(key, value);
+        }
+    }
+
+    private void waitAndMergeFileTransferPayload(Map<String, String> parsed) {
+        if (parsed == null) {
+            return;
+        }
+        if (hasFileTransferKey(parsed) && hasFileTransferPort(parsed)) {
+            return;
+        }
+        long start = System.currentTimeMillis();
+        while (System.currentTimeMillis() - start < FILE_TRANSFER_PAYLOAD_WAIT_MS) {
+            FileTransferInitPayload payload = lastFileTransferInitPayload;
+            long now = System.currentTimeMillis();
+            if (payload != null && payload.isFresh(now)) {
+                payload.mergeTo(parsed);
+                if (hasFileTransferKey(parsed)) {
+                    return;
+                }
+            }
+            try {
+                Thread.sleep(20L);
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
+    }
+
+    private boolean hasFileTransferKey(Map<String, String> parsed) {
+        String key = parsed.get("ftkey");
+        return key != null && !key.isBlank();
+    }
+
+    private boolean hasFileTransferPort(Map<String, String> parsed) {
+        Integer port = parseInt(parsed.get("port"));
+        return port != null && port > 0;
     }
 
     private int nextReturnCode() {
@@ -1421,19 +1722,25 @@ public final class TsFullClient implements Ts3VoiceClient {
         return current;
     }
 
-    private String buildAvatarFileName() {
+    private List<String> buildAvatarFileNames() {
+        List<String> names = new ArrayList<>();
         if (connectionData == null || connectionData.identity() == null) {
-            return "";
+            return names;
         }
         String uid = connectionData.identity().clientUid();
         if (uid == null || uid.isBlank()) {
-            return "";
+            return names;
         }
-        String sanitizedUid = uid
+        String urlSafeUid = uid
             .replace("/", "_")
             .replace("+", "-")
             .replace("=", "");
-        return "/avatar_" + sanitizedUid;
+        String legacyUid = uid.replace("/", "_");
+        names.add("/avatar_" + urlSafeUid);
+        if (!legacyUid.equals(urlSafeUid)) {
+            names.add("/avatar_" + legacyUid);
+        }
+        return names;
     }
 
     private Map<String, String> flattenCommandResponse(List<ParsedCommand> commands) {
@@ -1490,17 +1797,109 @@ public final class TsFullClient implements Ts3VoiceClient {
         try (Socket socket = new Socket()) {
             socket.connect(endpoint, FILE_TRANSFER_CONNECT_TIMEOUT_MS);
             socket.setSoTimeout(FILE_TRANSFER_TIMEOUT_MS);
-            try (BufferedOutputStream output = new BufferedOutputStream(socket.getOutputStream())) {
-                String header = "ftkey=" + key + "\n";
-                output.write(header.getBytes(StandardCharsets.UTF_8));
-                output.write(data);
-                output.flush();
+            BufferedOutputStream output = new BufferedOutputStream(socket.getOutputStream());
+            String header = "ftkey=" + key + "\n";
+            output.write(header.getBytes(StandardCharsets.UTF_8));
+            output.write(data);
+            output.flush();
+            log.info("[TS3] avatar upload payload sent host={} port={} bytes={}", host, port, data.length);
+            String ack = "";
+            try {
+                ack = readFileTransferAck(socket);
+            } catch (SocketTimeoutException ex) {
+                // Some servers do not return an explicit ack; upload is best-effort once payload was sent.
+                log.info("[TS3] avatar upload ack timeout host={} port={} assume_success", host, port);
+                return true;
+            } catch (SocketException ex) {
+                if (isConnectionReset(ex)) {
+                    // File transfer endpoint may close/reset after payload consumption.
+                    log.warn("[TS3] avatar upload ack reset host={} port={} assume_success", host, port);
+                    return true;
+                }
+                throw ex;
             }
-            return true;
+            if (ack.isBlank()) {
+                log.info("[TS3] avatar upload ack empty host={} port={}", host, port);
+                return true;
+            }
+            String compactAck = ack.replace('\r', ' ').replace('\n', ' ').trim();
+            ParsedCommand errorAck = extractErrorAck(ack);
+            if (errorAck == null || errorAck.params() == null) {
+                log.info("[TS3] avatar upload ack raw={}", compactAck);
+                return true;
+            }
+            String id = errorAck.params().get("id");
+            String msg = errorAck.params().get("msg");
+            boolean success = id != null && "0".equals(id.trim());
+            log.info("[TS3] avatar upload ack id={} msg={}", id, msg);
+            if (!success) {
+                log.warn("[TS3] avatar upload ack failed raw={}", compactAck);
+            }
+            return success;
         } catch (IOException ex) {
             log.warn("[TS3] avatar upload transport failed host={} port={}", host, port, ex);
             return false;
         }
+    }
+
+    private String readFileTransferAck(Socket socket) throws IOException {
+        if (socket == null) {
+            return "";
+        }
+        socket.setSoTimeout(FILE_TRANSFER_RESPONSE_TIMEOUT_MS);
+        InputStream input = socket.getInputStream();
+        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+        byte[] chunk = new byte[512];
+        while (buffer.size() < FILE_TRANSFER_RESPONSE_MAX_BYTES) {
+            int read;
+            try {
+                read = input.read(chunk);
+            } catch (SocketTimeoutException ex) {
+                break;
+            }
+            if (read < 0) {
+                break;
+            }
+            if (read == 0) {
+                continue;
+            }
+            int remain = FILE_TRANSFER_RESPONSE_MAX_BYTES - buffer.size();
+            int copyLen = Math.min(read, remain);
+            buffer.write(chunk, 0, copyLen);
+            if (copyLen < read) {
+                break;
+            }
+        }
+        return buffer.toString(StandardCharsets.UTF_8);
+    }
+
+    private boolean isConnectionReset(SocketException ex) {
+        if (ex == null) {
+            return false;
+        }
+        String message = ex.getMessage();
+        if (message == null || message.isBlank()) {
+            return false;
+        }
+        String normalized = message.toLowerCase();
+        return normalized.contains("connection reset")
+            || normalized.contains("forcibly closed");
+    }
+
+    private ParsedCommand extractErrorAck(String ack) {
+        if (ack == null || ack.isBlank()) {
+            return null;
+        }
+        List<ParsedCommand> lines = TsCommandParser.parseLines(ack);
+        for (ParsedCommand line : lines) {
+            if (line == null || line.name() == null) {
+                continue;
+            }
+            if ("error".equalsIgnoreCase(line.name())) {
+                return line;
+            }
+        }
+        return null;
     }
 
     private List<byte[]> assembleCommand(Packet packet) {
@@ -1724,6 +2123,27 @@ public final class TsFullClient implements Ts3VoiceClient {
         }
     }
 
+    private record FileTransferInitPayload(String key, int port, String ip, long receivedAt) {
+        private boolean isFresh(long now) {
+            return now - receivedAt <= FILE_TRANSFER_PAYLOAD_MAX_AGE_MS;
+        }
+
+        private void mergeTo(Map<String, String> target) {
+            if (target == null) {
+                return;
+            }
+            if (key != null && !key.isBlank()) {
+                target.putIfAbsent("ftkey", key);
+            }
+            if (port > 0) {
+                target.putIfAbsent("port", Integer.toString(port));
+            }
+            if (ip != null && !ip.isBlank()) {
+                target.putIfAbsent("ip", ip);
+            }
+        }
+    }
+
     private record PacketCounter(int id, int generation) {
     }
 
@@ -1785,11 +2205,13 @@ public final class TsFullClient implements Ts3VoiceClient {
      */
     private static final class PendingCommand {
         private final int returnCode;
+        private final String commandName;
         private final List<ParsedCommand> commands = new ArrayList<>();
         private final CompletableFuture<CommandResponse> future = new CompletableFuture<>();
 
-        private PendingCommand(int returnCode) {
+        private PendingCommand(int returnCode, String commandName) {
             this.returnCode = returnCode;
+            this.commandName = commandName;
         }
     }
 }
