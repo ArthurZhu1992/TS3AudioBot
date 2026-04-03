@@ -14,10 +14,15 @@ import pub.longyi.ts3audiobot.ts3.full.TsCrypt;
 import pub.longyi.ts3audiobot.ts3.full.TsVersionSigned;
 import pub.longyi.ts3audiobot.ts3.full.IdentityData;
 
+import java.nio.file.Path;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Created by: Arthur Zhu
@@ -47,6 +52,9 @@ public final class BotInstance {
     private final QueueService queueService;
     private final ScheduledExecutorService scheduler;
     private final java.util.Random random = new java.util.Random();
+    private final ExecutorService profileExecutor;
+    private final AtomicLong profileRevision = new AtomicLong();
+    private final String baseBotName;
 
     private volatile BotStatus status = BotStatus.STOPPED;
     private volatile ConnectionDataFull connectionData;
@@ -64,6 +72,10 @@ public final class BotInstance {
     private volatile String currentPlaylistId;
     private volatile long playbackStartedAt;
     private volatile long playbackPositionMs;
+    private volatile boolean trackDisplayActive;
+    private volatile String appliedNickname = "";
+    private volatile String appliedAvatarTrackId = "";
+    private volatile boolean wasConnected;
 
     private static final long RECONNECT_BASE_MS = 2000L;
     private static final long RECONNECT_MAX_MS = 30_000L;
@@ -73,6 +85,9 @@ public final class BotInstance {
     private static final int MAX_VOLUME_PERCENT = 100;
     private static final int DEFAULT_IDENTITY_LEVEL = 8;
     private static final int MAX_IDENTITY_LEVEL = 20;
+    private static final int MAX_NICKNAME_LENGTH = 30;
+    private static final String NOW_PLAYING_PREFIX = "♪ ";
+    private static final String NOW_PLAYING_SEPARATOR = " | ";
 
     /**
      * 创建 BotInstance 实例。
@@ -99,6 +114,12 @@ public final class BotInstance {
         this.trackMediaService = trackMediaService;
         this.queueService = queueService;
         this.scheduler = scheduler;
+        this.baseBotName = resolveBaseBotName(config, id);
+        this.profileExecutor = Executors.newSingleThreadExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "bot-profile-" + id);
+            thread.setDaemon(true);
+            return thread;
+        });
         if (config != null) {
             this.volumePercent = clampVolume(config.volumePercent);
             this.audioEngine.setVolume(this.volumePercent);
@@ -241,6 +262,7 @@ public final class BotInstance {
         }
         status = BotStatus.STARTING;
         playbackPaused = false;
+        trackDisplayActive = false;
         try {
             connectionData = buildConnectionData();
             client.configure(connectionData);
@@ -252,6 +274,7 @@ public final class BotInstance {
                 connectionTask = scheduler.scheduleAtFixedRate(this::ensureConnected, 1, 2, TimeUnit.SECONDS);
             }
             status = BotStatus.RUNNING;
+            scheduleClientProfileSync();
         } catch (Exception ex) {
             log.error("Bot {} failed to start", id, ex);
             status = BotStatus.ERROR;
@@ -267,10 +290,14 @@ public final class BotInstance {
             return;
         }
         playbackPaused = true;
+        trackDisplayActive = false;
         playbackPositionMs = 0L;
         currentTrack = null;
         currentItemId = null;
         currentPlaylistId = null;
+        appliedNickname = "";
+        appliedAvatarTrackId = "";
+        wasConnected = false;
         audioEngine.stop();
         cancelTask(playbackTask);
         cancelTask(connectionTask);
@@ -286,7 +313,9 @@ public final class BotInstance {
     public synchronized void pausePlayback() {
         playbackPositionMs = resolvePlaybackPosition();
         playbackPaused = true;
+        trackDisplayActive = false;
         audioEngine.stop();
+        scheduleClientProfileSync();
     }
 
 
@@ -304,10 +333,12 @@ public final class BotInstance {
             currentTrack = prepareTrackForPlayback(currentPlaylistId, currentItemId, currentTrack);
             long resumeAt = Math.max(0L, playbackPositionMs);
             playbackStartedAt = System.currentTimeMillis() - resumeAt;
+            trackDisplayActive = true;
             audioEngine.play(currentTrack);
             if (resumeAt > 0L) {
                 audioEngine.seek(resumeAt);
             }
+            scheduleClientProfileSync();
             return;
         }
         if (!audioEngine.isPlaying()) {
@@ -321,6 +352,7 @@ public final class BotInstance {
      */
     public synchronized void shutdown() {
         stop();
+        profileExecutor.shutdownNow();
         scheduler.shutdownNow();
     }
 
@@ -351,8 +383,11 @@ public final class BotInstance {
         currentTrack = null;
         currentItemId = null;
         currentPlaylistId = null;
+        trackDisplayActive = false;
         if (shouldContinue) {
             playNext(playlistId, true);
+        } else {
+            scheduleClientProfileSync();
         }
         return true;
     }
@@ -370,15 +405,22 @@ public final class BotInstance {
             default -> queueService.next(id, resolvedPlaylistId);
         };
         if (resolved == null) {
+            boolean changed = trackDisplayActive;
+            trackDisplayActive = false;
+            if (changed) {
+                scheduleClientProfileSync();
+            }
             return;
         }
         playbackPaused = false;
+        trackDisplayActive = true;
         currentItemId = resolved.id();
         currentPlaylistId = resolvedPlaylistId;
         currentTrack = prepareTrackForPlayback(resolvedPlaylistId, resolved.id(), resolved.track());
         playbackPositionMs = 0L;
         playbackStartedAt = System.currentTimeMillis();
         audioEngine.play(currentTrack);
+        scheduleClientProfileSync();
     }
 
 
@@ -421,9 +463,18 @@ public final class BotInstance {
             return;
         }
         if (client.isConnected()) {
+            if (!wasConnected) {
+                wasConnected = true;
+                appliedNickname = "";
+                scheduleClientProfileSync();
+            }
             connectInProgress = false;
             reconnectDelayMs = RECONNECT_BASE_MS;
             return;
+        }
+        if (wasConnected) {
+            wasConnected = false;
+            appliedNickname = "";
         }
         long now = System.currentTimeMillis();
         if (connectInProgress) {
@@ -530,6 +581,139 @@ public final class BotInstance {
             queueService.updateTrack(id, playlistId, itemId, prepared);
         }
         return prepared;
+    }
+
+    private void scheduleClientProfileSync() {
+        long revision = profileRevision.incrementAndGet();
+        log.info("Bot {} schedule profile sync revision={} connected={} paused={} trackActive={}",
+            id,
+            revision,
+            client.isConnected(),
+            playbackPaused,
+            trackDisplayActive
+        );
+        profileExecutor.execute(() -> applyClientProfile(revision));
+    }
+
+    private void applyClientProfile(long revision) {
+        if (revision != profileRevision.get()) {
+            log.info("Bot {} skip profile sync revision={} reason=stale latest={}", id, revision, profileRevision.get());
+            return;
+        }
+        if (!client.isConnected()) {
+            log.info("Bot {} skip profile sync revision={} reason=client_not_connected", id, revision);
+            return;
+        }
+        Track track = currentTrack;
+        boolean nowPlaying = shouldShowNowPlaying(track);
+        String targetNickname = nowPlaying ? buildNowPlayingNickname(track) : baseBotName;
+        if (targetNickname.isBlank()) {
+            log.info("Bot {} skip profile sync revision={} reason=blank_nickname", id, revision);
+            return;
+        }
+        if (revision != profileRevision.get()) {
+            log.info("Bot {} skip profile sync revision={} reason=stale_before_apply latest={}",
+                id,
+                revision,
+                profileRevision.get()
+            );
+            return;
+        }
+        if (!Objects.equals(targetNickname, appliedNickname) && client.updateClientNickname(targetNickname)) {
+            appliedNickname = targetNickname;
+            log.info("Bot {} profile nickname updated revision={} nickname={}", id, revision, targetNickname);
+        } else if (!Objects.equals(targetNickname, appliedNickname)) {
+            log.warn("Bot {} profile nickname update failed revision={} nickname={}", id, revision, targetNickname);
+        } else {
+            log.info("Bot {} profile nickname unchanged revision={} nickname={}", id, revision, targetNickname);
+        }
+        if (!nowPlaying || track == null || track.id() == null || track.id().isBlank()) {
+            log.info("Bot {} skip avatar update revision={} reason=no_playing_track", id, revision);
+            return;
+        }
+        String trackId = track.id().trim();
+        if (Objects.equals(trackId, appliedAvatarTrackId)) {
+            log.info("Bot {} skip avatar update revision={} reason=same_track trackId={}", id, revision, trackId);
+            return;
+        }
+        Optional<Path> coverFile = trackMediaService.findCoverFile(trackId);
+        appliedAvatarTrackId = trackId;
+        if (coverFile.isPresent() && revision == profileRevision.get()) {
+            boolean updated = client.updateClientAvatar(coverFile.get());
+            if (updated) {
+                log.info("Bot {} profile avatar updated revision={} trackId={} file={}",
+                    id,
+                    revision,
+                    trackId,
+                    coverFile.get()
+                );
+            } else {
+                log.warn("Bot {} profile avatar update failed revision={} trackId={} file={}",
+                    id,
+                    revision,
+                    trackId,
+                    coverFile.get()
+                );
+            }
+        } else if (coverFile.isEmpty()) {
+            log.info("Bot {} skip avatar update revision={} reason=cover_missing trackId={}", id, revision, trackId);
+        } else {
+            log.info("Bot {} skip avatar update revision={} reason=stale_after_cover latest={}",
+                id,
+                revision,
+                profileRevision.get()
+            );
+        }
+    }
+
+    private boolean shouldShowNowPlaying(Track track) {
+        return status == BotStatus.RUNNING && !playbackPaused && trackDisplayActive && track != null;
+    }
+
+    private String buildNowPlayingNickname(Track track) {
+        if (track == null) {
+            return baseBotName;
+        }
+        String title = firstNonBlank(track.title(), "Unknown");
+        String artist = firstNonBlank(track.artist(), "");
+        String song = artist.isBlank() ? title : title + " - " + artist;
+        String suffix = NOW_PLAYING_SEPARATOR + baseBotName;
+        int available = MAX_NICKNAME_LENGTH - NOW_PLAYING_PREFIX.length() - suffix.length();
+        if (available <= 0) {
+            return trimToLength(baseBotName, MAX_NICKNAME_LENGTH);
+        }
+        String clippedSong = trimToLength(song, available);
+        return NOW_PLAYING_PREFIX + clippedSong + suffix;
+    }
+
+    private String trimToLength(String value, int maxLength) {
+        if (value == null) {
+            return "";
+        }
+        if (maxLength <= 0 || value.length() <= maxLength) {
+            return value;
+        }
+        if (maxLength <= 3) {
+            return value.substring(0, maxLength);
+        }
+        return value.substring(0, maxLength - 3) + "...";
+    }
+
+    private static String resolveBaseBotName(AppConfig.BotConfig config, String fallbackId) {
+        if (config != null && config.name != null && !config.name.isBlank()) {
+            return config.name.trim();
+        }
+        if (config != null && config.nickname != null && !config.nickname.isBlank()) {
+            return config.nickname.trim();
+        }
+        return fallbackId == null ? "TS3AudioBot" : fallbackId;
+    }
+
+    private String firstNonBlank(String first, String second) {
+        if (first != null && !first.isBlank()) {
+            return first.trim();
+        }
+        return second == null ? "" : second.trim();
     }
 
     private long resolvePlaybackPosition() {

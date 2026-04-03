@@ -15,11 +15,20 @@ import pub.longyi.ts3audiobot.ts3.util.QuickLZ;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.Socket;
+import java.awt.Graphics2D;
+import java.awt.Image;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
+import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +36,11 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Consumer;
+import javax.imageio.IIOImage;
+import javax.imageio.ImageIO;
+import javax.imageio.ImageWriteParam;
+import javax.imageio.ImageWriter;
+import javax.imageio.stream.MemoryCacheImageOutputStream;
 
 /**
  * Created by: Arthur Zhu
@@ -71,6 +85,7 @@ public final class TsFullClient implements Ts3VoiceClient {
     private volatile Consumer<ParsedCommand> errorListener;
     private volatile Runnable loginListener;
     private volatile Consumer<String> stopListener;
+    private int fileTransferId = 1;
 
     private static final int MAX_PACKET_SIZE = 500;
     private static final int MAX_COMMAND_FRAGMENT = 40960;
@@ -86,6 +101,15 @@ public final class TsFullClient implements Ts3VoiceClient {
     private static final String CHANNEL_PATH_SEPARATOR = "/";
     private static final String CHANNEL_ROOT_PARENT = "0";
     private static final String CHANNEL_ID_PATTERN = "\\d+";
+    private static final int AVATAR_MAX_FILE_SIZE_BYTES = 200_000;
+    private static final int AVATAR_MAX_IMAGE_EDGE = 1024;
+    private static final float AVATAR_JPEG_QUALITY_MAX = 0.92f;
+    private static final float AVATAR_JPEG_QUALITY_MIN = 0.35f;
+    private static final float AVATAR_JPEG_QUALITY_STEP = 0.07f;
+    private static final float AVATAR_SCALE_STEP = 0.85f;
+    private static final int AVATAR_SCALE_MAX_ATTEMPTS = 6;
+    private static final int FILE_TRANSFER_CONNECT_TIMEOUT_MS = 5000;
+    private static final int FILE_TRANSFER_TIMEOUT_MS = 8000;
 
     /**
      * 执行 configure 操作。
@@ -218,6 +242,268 @@ public final class TsFullClient implements Ts3VoiceClient {
             voiceFlaggedRemaining--;
         }
         sendVoicePacket(data, length, flagSession);
+    }
+
+
+    /**
+     * 更新机器人昵称。
+     * @param nickname 参数 nickname
+     * @return 返回值
+     */
+    @Override
+    public boolean updateClientNickname(String nickname) {
+        if (!connected || nickname == null || nickname.isBlank()) {
+            log.info("[TS3] skip nickname update connected={} initComplete={} nicknameBlank={}",
+                connected,
+                initComplete,
+                nickname == null || nickname.isBlank()
+            );
+            return false;
+        }
+        CommandResponse response = requestCommandResponse(
+            "clientupdate",
+            TsCommandBuilder.params("client_nickname", nickname.trim())
+        );
+        boolean success = isCommandSuccess(response);
+        log.info("[TS3] nickname update success={} nickname={}", success, nickname.trim());
+        return success;
+    }
+
+
+    /**
+     * 更新机器人头像。
+     * @param avatarFile 参数 avatarFile
+     * @return 返回值
+     */
+    @Override
+    public boolean updateClientAvatar(Path avatarFile) {
+        if (!connected || avatarFile == null || Files.notExists(avatarFile)) {
+            log.info("[TS3] skip avatar update connected={} initComplete={} fileExists={}",
+                connected,
+                initComplete,
+                avatarFile != null && Files.exists(avatarFile)
+            );
+            return false;
+        }
+        byte[] bytes = readAvatarBytes(avatarFile);
+        if (bytes.length <= 0) {
+            log.info("[TS3] skip avatar update reason=empty_bytes file={}", avatarFile);
+            return false;
+        }
+        if (bytes.length > AVATAR_MAX_FILE_SIZE_BYTES) {
+            log.info("[TS3] avatar original bytes={} exceeds limit={}, start compress file={}",
+                bytes.length,
+                AVATAR_MAX_FILE_SIZE_BYTES,
+                avatarFile
+            );
+            bytes = compressAvatarBytes(avatarFile);
+        }
+        if (bytes.length <= 0 || bytes.length > AVATAR_MAX_FILE_SIZE_BYTES) {
+            log.info("[TS3] skip avatar upload size={} file={}", bytes.length, avatarFile);
+            return false;
+        }
+        String avatarName = buildAvatarFileName();
+        if (avatarName.isBlank()) {
+            return false;
+        }
+        Map<String, String> params = TsCommandBuilder.params(
+            "clientftfid", Integer.toString(nextFileTransferId()),
+            "name", avatarName,
+            "cid", "0",
+            "cpw", "",
+            "size", Integer.toString(bytes.length),
+            "overwrite", "1",
+            "resume", "0",
+            "proto", "1"
+        );
+        CommandResponse response = requestCommandResponse("ftinitupload", params);
+        if (!isCommandSuccess(response)) {
+            log.warn("[TS3] avatar upload init command failed file={}", avatarFile);
+            return false;
+        }
+        Map<String, String> parsed = flattenCommandResponse(response == null ? List.of() : response.commands);
+        String key = parsed.get("ftkey");
+        Integer port = parseInt(parsed.get("port"));
+        if (key == null || key.isBlank() || port == null || port <= 0) {
+            log.info("[TS3] avatar upload init missing key/port params={}", parsed);
+            return false;
+        }
+        String host = resolveFileTransferHost(parsed.get("ip"));
+        if (host.isBlank()) {
+            return false;
+        }
+        log.info("[TS3] avatar upload init ok host={} port={} bytes={} file={}", host, port, bytes.length, avatarFile);
+        return uploadFileTransferPayload(host, port, key, bytes);
+    }
+
+    private byte[] readAvatarBytes(Path avatarFile) {
+        if (avatarFile == null || Files.notExists(avatarFile)) {
+            return new byte[0];
+        }
+        try {
+            return Files.readAllBytes(avatarFile);
+        } catch (IOException ex) {
+            log.warn("[TS3] read avatar failed file={}", avatarFile, ex);
+            return new byte[0];
+        }
+    }
+
+    private byte[] compressAvatarBytes(Path avatarFile) {
+        BufferedImage source = readAvatarImage(avatarFile);
+        if (source == null) {
+            return new byte[0];
+        }
+        BufferedImage normalized = normalizeImageSize(source);
+        BufferedImage working = normalized;
+        for (int attempt = 0; attempt < AVATAR_SCALE_MAX_ATTEMPTS; attempt++) {
+            byte[] encoded = encodeJpegWithinLimit(working, AVATAR_MAX_FILE_SIZE_BYTES);
+            if (encoded.length > 0 && encoded.length <= AVATAR_MAX_FILE_SIZE_BYTES) {
+                log.info("[TS3] avatar compress success bytes={} width={} height={} attempt={} file={}",
+                    encoded.length,
+                    working.getWidth(),
+                    working.getHeight(),
+                    attempt,
+                    avatarFile
+                );
+                return encoded;
+            }
+            BufferedImage scaled = scaleImage(working, AVATAR_SCALE_STEP);
+            if (scaled == working) {
+                break;
+            }
+            working = scaled;
+        }
+        log.warn("[TS3] avatar compress failed file={}", avatarFile);
+        return new byte[0];
+    }
+
+    private BufferedImage readAvatarImage(Path avatarFile) {
+        if (avatarFile == null) {
+            return null;
+        }
+        try {
+            return ImageIO.read(avatarFile.toFile());
+        } catch (IOException ex) {
+            log.warn("[TS3] read avatar image failed file={}", avatarFile, ex);
+            return null;
+        }
+    }
+
+    private BufferedImage normalizeImageSize(BufferedImage source) {
+        if (source == null) {
+            return null;
+        }
+        int width = Math.max(1, source.getWidth());
+        int height = Math.max(1, source.getHeight());
+        if (width <= AVATAR_MAX_IMAGE_EDGE && height <= AVATAR_MAX_IMAGE_EDGE) {
+            return toRgbImage(source);
+        }
+        double ratio = Math.min((double) AVATAR_MAX_IMAGE_EDGE / width, (double) AVATAR_MAX_IMAGE_EDGE / height);
+        int targetWidth = Math.max(1, (int) Math.round(width * ratio));
+        int targetHeight = Math.max(1, (int) Math.round(height * ratio));
+        return scaleImage(toRgbImage(source), targetWidth, targetHeight);
+    }
+
+    private byte[] encodeJpegWithinLimit(BufferedImage image, int maxBytes) {
+        if (image == null || maxBytes <= 0) {
+            return new byte[0];
+        }
+        float quality = AVATAR_JPEG_QUALITY_MAX;
+        while (quality >= AVATAR_JPEG_QUALITY_MIN - 0.0001f) {
+            byte[] encoded = encodeJpeg(image, quality);
+            if (encoded.length > 0 && encoded.length <= maxBytes) {
+                return encoded;
+            }
+            quality -= AVATAR_JPEG_QUALITY_STEP;
+        }
+        return new byte[0];
+    }
+
+    private byte[] encodeJpeg(BufferedImage image, float quality) {
+        if (image == null) {
+            return new byte[0];
+        }
+        Iterator<ImageWriter> writers = ImageIO.getImageWritersByFormatName("jpg");
+        ImageWriter writer = writers.hasNext() ? writers.next() : null;
+        if (writer == null) {
+            return new byte[0];
+        }
+        try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
+             MemoryCacheImageOutputStream output = new MemoryCacheImageOutputStream(baos)) {
+            ImageWriteParam param = writer.getDefaultWriteParam();
+            if (param.canWriteCompressed()) {
+                param.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
+                param.setCompressionQuality(Math.max(0.05f, Math.min(1.0f, quality)));
+            }
+            writer.setOutput(output);
+            writer.write(null, new IIOImage(image, null, null), param);
+            output.flush();
+            return baos.toByteArray();
+        } catch (IOException ex) {
+            log.warn("[TS3] encode avatar jpeg failed quality={}", quality, ex);
+            return new byte[0];
+        } finally {
+            writer.dispose();
+        }
+    }
+
+    private BufferedImage scaleImage(BufferedImage image, float ratio) {
+        if (image == null) {
+            return null;
+        }
+        int width = Math.max(1, image.getWidth());
+        int height = Math.max(1, image.getHeight());
+        int targetWidth = Math.max(1, (int) Math.round(width * ratio));
+        int targetHeight = Math.max(1, (int) Math.round(height * ratio));
+        if (targetWidth == width && targetHeight == height) {
+            if (width <= 64 || height <= 64) {
+                return image;
+            }
+            targetWidth = Math.max(1, width - 1);
+            targetHeight = Math.max(1, height - 1);
+        }
+        return scaleImage(image, targetWidth, targetHeight);
+    }
+
+    private BufferedImage scaleImage(BufferedImage image, int targetWidth, int targetHeight) {
+        if (image == null) {
+            return null;
+        }
+        BufferedImage scaled = new BufferedImage(targetWidth, targetHeight, BufferedImage.TYPE_INT_RGB);
+        Graphics2D graphics = scaled.createGraphics();
+        try {
+            graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+            graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+            graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            graphics.drawImage(
+                image.getScaledInstance(targetWidth, targetHeight, Image.SCALE_SMOOTH),
+                0,
+                0,
+                targetWidth,
+                targetHeight,
+                null
+            );
+        } finally {
+            graphics.dispose();
+        }
+        return scaled;
+    }
+
+    private BufferedImage toRgbImage(BufferedImage source) {
+        if (source == null) {
+            return null;
+        }
+        if (source.getType() == BufferedImage.TYPE_INT_RGB) {
+            return source;
+        }
+        BufferedImage rgb = new BufferedImage(source.getWidth(), source.getHeight(), BufferedImage.TYPE_INT_RGB);
+        Graphics2D graphics = rgb.createGraphics();
+        try {
+            graphics.drawImage(source, 0, 0, null);
+        } finally {
+            graphics.dispose();
+        }
+        return rgb;
     }
 
 
@@ -545,6 +831,7 @@ public final class TsFullClient implements Ts3VoiceClient {
             }
         }
         updateCodec(cmd);
+        initComplete = true;
         connected = true;
         log.info("[TS3] login complete");
         Runnable listener = loginListener;
@@ -1000,13 +1287,21 @@ public final class TsFullClient implements Ts3VoiceClient {
     }
 
     private List<ParsedCommand> requestCommand(String name, Map<String, String> params) {
-        if (!connected) {
+        CommandResponse response = requestCommandResponse(name, params);
+        if (response == null || response.commands == null) {
             return List.of();
+        }
+        return response.commands;
+    }
+
+    private CommandResponse requestCommandResponse(String name, Map<String, String> params) {
+        if (!connected) {
+            return null;
         }
         PendingCommand pending = new PendingCommand(nextReturnCode());
         synchronized (responseLock) {
             if (pendingCommand != null) {
-                return List.of();
+                return null;
             }
             pendingCommand = pending;
         }
@@ -1018,14 +1313,13 @@ public final class TsFullClient implements Ts3VoiceClient {
         String command = TsCommandBuilder.build(name, merged);
         sendCommand(command);
         try {
-            CommandResponse response = pending.future.get(COMMAND_RESPONSE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
-            return response.commands;
+            return pending.future.get(COMMAND_RESPONSE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
         } catch (TimeoutException ex) {
             log.warn("[TS3] command timeout name={} returnCode={}", name, pending.returnCode);
-            return List.of();
+            return null;
         } catch (Exception ex) {
             log.warn("[TS3] command failed name={} returnCode={}", name, pending.returnCode, ex);
-            return List.of();
+            return null;
         } finally {
             synchronized (responseLock) {
                 if (pendingCommand == pending) {
@@ -1033,6 +1327,17 @@ public final class TsFullClient implements Ts3VoiceClient {
                 }
             }
         }
+    }
+
+    private boolean isCommandSuccess(CommandResponse response) {
+        if (response == null || response.error == null || response.error.params() == null) {
+            return false;
+        }
+        String id = response.error.params().get("id");
+        if (id == null || id.isBlank()) {
+            return false;
+        }
+        return "0".equals(id.trim());
     }
 
     private void collectCommandResponse(ParsedCommand cmd) {
@@ -1104,6 +1409,97 @@ public final class TsFullClient implements Ts3VoiceClient {
             return Integer.parseInt(value.trim());
         } catch (NumberFormatException ex) {
             return null;
+        }
+    }
+
+    private synchronized int nextFileTransferId() {
+        int current = fileTransferId;
+        fileTransferId++;
+        if (fileTransferId > 0x7FFF) {
+            fileTransferId = 1;
+        }
+        return current;
+    }
+
+    private String buildAvatarFileName() {
+        if (connectionData == null || connectionData.identity() == null) {
+            return "";
+        }
+        String uid = connectionData.identity().clientUid();
+        if (uid == null || uid.isBlank()) {
+            return "";
+        }
+        String sanitizedUid = uid
+            .replace("/", "_")
+            .replace("+", "-")
+            .replace("=", "");
+        return "/avatar_" + sanitizedUid;
+    }
+
+    private Map<String, String> flattenCommandResponse(List<ParsedCommand> commands) {
+        Map<String, String> result = new LinkedHashMap<>();
+        if (commands == null) {
+            return result;
+        }
+        for (ParsedCommand cmd : commands) {
+            if (cmd == null) {
+                continue;
+            }
+            putResponseToken(result, cmd.name());
+            if (cmd.params() == null || cmd.params().isEmpty()) {
+                continue;
+            }
+            result.putAll(cmd.params());
+        }
+        return result;
+    }
+
+    private void putResponseToken(Map<String, String> result, String token) {
+        if (result == null || token == null || token.isBlank()) {
+            return;
+        }
+        int idx = token.indexOf('=');
+        if (idx <= 0 || idx >= token.length() - 1) {
+            return;
+        }
+        String key = token.substring(0, idx);
+        String value = token.substring(idx + 1);
+        result.put(key, value);
+    }
+
+    private String resolveFileTransferHost(String providedIp) {
+        if (providedIp != null && !providedIp.isBlank()) {
+            return providedIp.trim();
+        }
+        if (connectionData == null) {
+            return "";
+        }
+        InetSocketAddress endpoint = parseAddress(connectionData.address());
+        if (endpoint == null) {
+            return "";
+        }
+        String host = endpoint.getHostString();
+        return host == null ? "" : host;
+    }
+
+    private boolean uploadFileTransferPayload(String host, int port, String key, byte[] data) {
+        if (host == null || host.isBlank() || key == null || key.isBlank() || data == null) {
+            return false;
+        }
+        InetSocketAddress endpoint = new InetSocketAddress(host, port);
+        try (Socket socket = new Socket()) {
+            socket.connect(endpoint, FILE_TRANSFER_CONNECT_TIMEOUT_MS);
+            socket.setSoTimeout(FILE_TRANSFER_TIMEOUT_MS);
+            try (BufferedOutputStream output = new BufferedOutputStream(socket.getOutputStream())) {
+                String header = "ftkey=" + key + "\n";
+                output.write(header.getBytes(StandardCharsets.UTF_8));
+                output.write(data);
+                output.flush();
+            }
+            return true;
+        } catch (IOException ex) {
+            log.warn("[TS3] avatar upload transport failed host={} port={}", host, port, ex);
+            return false;
         }
     }
 

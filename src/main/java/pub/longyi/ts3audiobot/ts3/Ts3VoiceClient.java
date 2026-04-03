@@ -1,5 +1,7 @@
 package pub.longyi.ts3audiobot.ts3;
 
+import java.nio.file.Path;
+
 /**
  * Created by: Arthur Zhu
  * Email: zhushuai.net@gmail.com
@@ -33,4 +35,22 @@ public interface Ts3VoiceClient extends Ts3Client {
      * @param length 参数 length
      */
     void sendOpusFrame(byte[] data, int length);
+
+    /**
+     * 更新机器人昵称。
+     * @param nickname 参数 nickname
+     * @return 返回值
+     */
+    default boolean updateClientNickname(String nickname) {
+        return false;
+    }
+
+    /**
+     * 更新机器人头像。
+     * @param avatarFile 参数 avatarFile
+     * @return 返回值
+     */
+    default boolean updateClientAvatar(Path avatarFile) {
+        return false;
+    }
 }

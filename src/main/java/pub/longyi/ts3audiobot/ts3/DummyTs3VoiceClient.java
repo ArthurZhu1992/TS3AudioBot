@@ -2,6 +2,8 @@ package pub.longyi.ts3audiobot.ts3;
 
 import lombok.extern.slf4j.Slf4j;
 
+import java.nio.file.Path;
+
 /**
  * Created by: Arthur Zhu
  * Email: zhushuai.net@gmail.com
@@ -77,5 +79,35 @@ public final class DummyTs3VoiceClient implements Ts3VoiceClient {
             return;
         }
         log.debug("[TS3] sending opus frame size={} bytes", length);
+    }
+
+
+    /**
+     * 更新机器人昵称。
+     * @param nickname 参数 nickname
+     * @return 返回值
+     */
+    @Override
+    public boolean updateClientNickname(String nickname) {
+        if (!connected) {
+            return false;
+        }
+        log.info("[TS3] update nickname {}", nickname);
+        return true;
+    }
+
+
+    /**
+     * 更新机器人头像。
+     * @param avatarFile 参数 avatarFile
+     * @return 返回值
+     */
+    @Override
+    public boolean updateClientAvatar(Path avatarFile) {
+        if (!connected) {
+            return false;
+        }
+        log.info("[TS3] update avatar {}", avatarFile);
+        return true;
     }
 }
