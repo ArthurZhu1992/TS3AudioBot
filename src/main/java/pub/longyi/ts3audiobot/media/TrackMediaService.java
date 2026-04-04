@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
+import pub.longyi.ts3audiobot.config.AppConfig;
 import pub.longyi.ts3audiobot.config.ConfigService;
 import pub.longyi.ts3audiobot.queue.Track;
 import pub.longyi.ts3audiobot.search.SearchAuthService;
@@ -26,10 +27,12 @@ import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 
 @Slf4j
@@ -55,6 +58,16 @@ public final class TrackMediaService {
     private static final int DEFAULT_CACHE_TTL_HOURS = 24 * 30;
     private static final Duration TMP_ENTRY_TTL = Duration.ofHours(6);
     private static final long BYTES_PER_GB = 1024L * 1024L * 1024L;
+    private static final long IMAGE_PROBE_TIMEOUT_MS = 1_500L;
+    private static final Duration IMAGE_PROBE_SUCCESS_TTL = Duration.ofHours(24);
+    private static final Duration IMAGE_PROBE_FAIL_TTL = Duration.ofMinutes(30);
+    private static final long IMAGE_TRANSCODE_TIMEOUT_MS = 30_000L;
+    private static final String COVER_VARIANT_COVER = "cover";
+    private static final String COVER_VARIANT_THUMB = "thumb";
+    private static final String COVER_MAIN_JPG_FILE = "cover-main.jpg";
+    private static final String COVER_MAIN_AVIF_FILE = "cover-main.avif";
+    private static final String COVER_THUMB_JPG_FILE = "cover-thumb.jpg";
+    private static final String COVER_THUMB_AVIF_FILE = "cover-thumb.avif";
 
     private final ConfigService configService;
     private final SearchAuthService searchAuthService;
@@ -67,6 +80,12 @@ public final class TrackMediaService {
     private final boolean audioCacheEnabled;
     private final Duration cacheEntryTtl;
     private final long maxCacheBytes;
+    private final String ffmpegPath;
+    private final boolean imagePolicyEnabled;
+    private final String imageMode;
+    private final int coverThumbSize;
+    private final int coverMainSize;
+    private final Map<String, ProbeDecision> directCoverProbeCache = new ConcurrentHashMap<>();
 
     public TrackMediaService(ConfigService configService, Environment environment) {
         this(configService, environment, null);
@@ -77,8 +96,16 @@ public final class TrackMediaService {
         this.configService = configService;
         this.searchAuthService = searchAuthService;
         var mediaConfig = configService.get().media;
+        AppConfig.MediaImage imageConfig = mediaConfig == null || mediaConfig.image == null
+            ? AppConfig.MediaImage.defaults()
+            : mediaConfig.image;
         this.mediaCacheEnabled = mediaConfig != null && mediaConfig.cacheEnabled;
         this.audioCacheEnabled = mediaConfig != null && mediaConfig.audioCacheEnabled;
+        this.imagePolicyEnabled = imageConfig.enabled;
+        this.imageMode = imageConfig.mode;
+        this.coverThumbSize = imageConfig.thumbSize;
+        this.coverMainSize = imageConfig.coverSize;
+        this.ffmpegPath = firstNonBlank(configService.get().tools.ffmpegPath, "ffmpeg");
         int ttlHours = mediaConfig == null ? DEFAULT_CACHE_TTL_HOURS : Math.max(1, mediaConfig.cacheTtlHours);
         int maxSizeGb = mediaConfig == null ? 20 : Math.max(1, mediaConfig.maxSizeGb);
         this.cacheEntryTtl = Duration.ofHours(ttlHours);
@@ -131,26 +158,53 @@ public final class TrackMediaService {
     }
 
     public Optional<Path> findCoverFile(String trackId) {
+        return findCoverFile(trackId, COVER_VARIANT_COVER, "", true);
+    }
+
+    public Optional<Path> findCoverFile(String trackId, String variant, String acceptHeader) {
+        return findCoverFile(trackId, normalizeCoverVariant(variant), acceptHeader, false);
+    }
+
+    private Optional<Path> findCoverFile(
+        String trackId,
+        String variant,
+        String acceptHeader,
+        boolean preferPortableFormat
+    ) {
         if (isBlank(trackId)) {
             return Optional.empty();
         }
-        Optional<Path> inTrackDir = findCachedFile(resolveTrackCacheEntryDir(trackId), "cover.");
+        Optional<Path> inTrackDir = findCoverFromDirectory(
+            resolveTrackCacheEntryDir(trackId),
+            variant,
+            acceptHeader,
+            preferPortableFormat
+        );
         if (inTrackDir.isPresent()) {
             return inTrackDir;
         }
         if (!mediaCacheEnabled) {
-            return findCachedFile(resolveLegacyTrackDir(trackId), "cover.");
+            return findCoverFromDirectory(resolveLegacyTrackDir(trackId), variant, acceptHeader, preferPortableFormat);
         }
-        Optional<Path> legacySharedByBinding = findCachedFile(
+        Optional<Path> legacySharedByBinding = findCoverFromDirectory(
             resolveCoverCacheEntryDir(readLegacyBindingKey(trackId, BINDING_COVER_KEY).orElse("")),
-            "cover."
+            variant,
+            acceptHeader,
+            preferPortableFormat
         );
         if (legacySharedByBinding.isPresent()) {
             return legacySharedByBinding;
         }
         // Backward compatibility: older builds used the cover cache key in URL directly.
-        Optional<Path> cached = findCachedFile(resolveCoverCacheEntryDir(trackId), "cover.");
-        return cached.isPresent() ? cached : findCachedFile(resolveLegacyTrackDir(trackId), "cover.");
+        Optional<Path> cached = findCoverFromDirectory(
+            resolveCoverCacheEntryDir(trackId),
+            variant,
+            acceptHeader,
+            preferPortableFormat
+        );
+        return cached.isPresent()
+            ? cached
+            : findCoverFromDirectory(resolveLegacyTrackDir(trackId), variant, acceptHeader, preferPortableFormat);
     }
 
     public Path mediaBaseDir() {
@@ -186,58 +240,357 @@ public final class TrackMediaService {
     }
 
     private String ensureCover(Track track) {
+        String coverUrl = track == null || track.coverUrl() == null ? "" : track.coverUrl().trim();
+        if (isBlank(coverUrl)) {
+            return "";
+        }
+        if (!imagePolicyEnabled) {
+            return ensureCoverWithProxy(track, coverUrl);
+        }
+        // hybrid 模式始终优先尝试直链，只有探测失败后才回退代理。
+        if (isHttpUrl(coverUrl) && shouldUseDirectCover(coverUrl)) {
+            return coverUrl;
+        }
+        return ensureCoverWithProxy(track, coverUrl);
+    }
+
+    /**
+     * 代理模式下统一走本地缓存：下载一次源图并生成多版本产物。
+     */
+    private String ensureCoverWithProxy(Track track, String coverUrl) {
         if (!mediaCacheEnabled) {
-            String coverUrl = track == null ? "" : track.coverUrl();
-            return coverUrl == null ? "" : coverUrl;
+            return coverUrl;
         }
         if (track == null || isBlank(track.id())) {
-            return track.coverUrl() == null ? "" : track.coverUrl();
+            return coverUrl;
         }
         Path trackDir = ensureCacheEntryDir(trackCacheDir, track.id());
         if (trackDir == null) {
-            return track.coverUrl() == null ? "" : track.coverUrl();
+            return coverUrl;
         }
-        Optional<Path> cached = findCachedFile(trackDir, "cover.");
-        if (cached.isPresent()) {
+        if (hasCoverVariants(trackDir)) {
             markCacheEntryTouched(trackDir);
             return buildCoverUrl(track.id());
         }
-        Optional<Path> migrated = importLegacyCache(resolveLegacyTrackDir(track), "cover.", trackDir, "cover");
-        if (migrated.isPresent()) {
-            markCacheEntryTouched(trackDir);
-            enforceCacheSizeLimitIfNeeded();
-            return buildCoverUrl(track.id());
+        Optional<Path> source = findCoverSourceFile(trackDir);
+        if (source.isEmpty()) {
+            source = importLegacyCache(resolveLegacyTrackDir(track), "cover.", trackDir, "cover-legacy");
         }
-        String legacyCoverKey = firstNonBlank(
-            readLegacyBindingKey(track.id(), BINDING_COVER_KEY).orElse(""),
-            resolveCoverCacheKey(track)
-        );
-        Optional<Path> migratedLegacyShared = importLegacyCache(
-            resolveCoverCacheEntryDir(legacyCoverKey),
-            "cover.",
-            trackDir,
-            "cover"
-        );
-        if (migratedLegacyShared.isPresent()) {
-            markCacheEntryTouched(trackDir);
-            enforceCacheSizeLimitIfNeeded();
-            return buildCoverUrl(track.id());
+        if (source.isEmpty()) {
+            String legacyCoverKey = firstNonBlank(
+                readLegacyBindingKey(track.id(), BINDING_COVER_KEY).orElse(""),
+                resolveCoverCacheKey(track)
+            );
+            source = importLegacyCache(
+                resolveCoverCacheEntryDir(legacyCoverKey),
+                "cover.",
+                trackDir,
+                "cover-shared-legacy"
+            );
         }
-        String coverUrl = track.coverUrl();
-        if (!isHttpUrl(coverUrl)) {
-            return coverUrl == null ? "" : coverUrl;
-        }
-        try {
-            DownloadedFile downloaded = downloadHttpFile(coverUrl, trackDir, "cover", true);
-            if (downloaded != null) {
+        if (source.isPresent()) {
+            if (ensureCoverVariants(trackDir, source.get()) || Files.isRegularFile(source.get())) {
                 markCacheEntryTouched(trackDir);
                 enforceCacheSizeLimitIfNeeded();
                 return buildCoverUrl(track.id());
+            }
+        }
+        if (!isHttpUrl(coverUrl)) {
+            return coverUrl;
+        }
+        try {
+            DownloadedFile downloaded = downloadHttpFile(coverUrl, trackDir, "cover-downloaded", true);
+            if (downloaded != null) {
+                if (ensureCoverVariants(trackDir, downloaded.path()) || Files.isRegularFile(downloaded.path())) {
+                    markCacheEntryTouched(trackDir);
+                    enforceCacheSizeLimitIfNeeded();
+                    return buildCoverUrl(track.id());
+                }
             }
         } catch (Exception ex) {
             log.warn("Failed to cache cover for track {}", track.id(), ex);
         }
         return coverUrl;
+    }
+
+    private boolean shouldUseDirectCover(String coverUrl) {
+        if (!isHttpUrl(coverUrl)) {
+            return false;
+        }
+        if (AppConfig.MediaImage.MODE_DIRECT.equals(imageMode)) {
+            return true;
+        }
+        if (AppConfig.MediaImage.MODE_PROXY.equals(imageMode)) {
+            return false;
+        }
+        return probeDirectCoverAvailability(coverUrl);
+    }
+
+    private boolean probeDirectCoverAvailability(String coverUrl) {
+        String key = normalizeUrlKey(coverUrl);
+        long now = System.currentTimeMillis();
+        ProbeDecision cached = directCoverProbeCache.get(key);
+        if (cached != null && cached.expiresAtMillis() > now) {
+            return cached.available();
+        }
+        boolean available = probeImageUrl(coverUrl);
+        Duration ttl = available ? IMAGE_PROBE_SUCCESS_TTL : IMAGE_PROBE_FAIL_TTL;
+        directCoverProbeCache.put(key, new ProbeDecision(available, now + ttl.toMillis()));
+        return available;
+    }
+
+    private boolean probeImageUrl(String coverUrl) {
+        try {
+            HttpRequest head = HttpRequest.newBuilder(URI.create(coverUrl))
+                .timeout(Duration.ofMillis(IMAGE_PROBE_TIMEOUT_MS))
+                .header("User-Agent", "Mozilla/5.0 TS3AudioBot")
+                .method("HEAD", HttpRequest.BodyPublishers.noBody())
+                .build();
+            HttpResponse<Void> headResponse = HTTP.send(head, HttpResponse.BodyHandlers.discarding());
+            int status = headResponse.statusCode();
+            if (status >= 200 && status < 300) {
+                String type = headResponse.headers().firstValue("Content-Type").orElse("");
+                return type.isBlank() || type.toLowerCase(Locale.ROOT).startsWith("image/");
+            }
+            if (status == 405 || status == 501) {
+                return probeImageUrlWithRangeGet(coverUrl);
+            }
+            return false;
+        } catch (Exception ex) {
+            return probeImageUrlWithRangeGet(coverUrl);
+        }
+    }
+
+    private boolean probeImageUrlWithRangeGet(String coverUrl) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder(URI.create(coverUrl))
+                .timeout(Duration.ofMillis(IMAGE_PROBE_TIMEOUT_MS))
+                .header("User-Agent", "Mozilla/5.0 TS3AudioBot")
+                .header("Range", "bytes=0-0")
+                .GET()
+                .build();
+            HttpResponse<Void> response = HTTP.send(request, HttpResponse.BodyHandlers.discarding());
+            int status = response.statusCode();
+            if (status < 200 || status >= 400) {
+                return false;
+            }
+            String type = response.headers().firstValue("Content-Type").orElse("");
+            return type.isBlank() || type.toLowerCase(Locale.ROOT).startsWith("image/");
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    private Optional<Path> findCoverFromDirectory(
+        Path directory,
+        String variant,
+        String acceptHeader,
+        boolean preferPortableFormat
+    ) {
+        if (directory == null || !Files.isDirectory(directory)) {
+            return Optional.empty();
+        }
+        Optional<Path> variantCover = findCoverVariantFile(directory, variant, acceptHeader, preferPortableFormat);
+        if (variantCover.isPresent()) {
+            return variantCover;
+        }
+        return findCachedFile(directory, "cover.");
+    }
+
+    private Optional<Path> findCoverVariantFile(
+        Path directory,
+        String variant,
+        String acceptHeader,
+        boolean preferPortableFormat
+    ) {
+        List<Path> candidates = new ArrayList<>();
+        String normalizedVariant = normalizeCoverVariant(variant);
+        String mainBase = COVER_VARIANT_THUMB.equals(normalizedVariant) ? "cover-thumb" : "cover-main";
+        Path avif = directory.resolve(mainBase + ".avif");
+        Path jpg = directory.resolve(mainBase + ".jpg");
+        if (preferPortableFormat) {
+            candidates.add(jpg);
+            candidates.add(avif);
+        } else if (acceptsAvif(acceptHeader)) {
+            candidates.add(avif);
+            candidates.add(jpg);
+        } else {
+            candidates.add(jpg);
+            candidates.add(avif);
+        }
+        for (Path candidate : candidates) {
+            if (Files.isRegularFile(candidate)) {
+                return Optional.of(candidate);
+            }
+        }
+        return Optional.empty();
+    }
+
+    private boolean hasCoverVariants(Path trackDir) {
+        if (trackDir == null) {
+            return false;
+        }
+        return Files.isRegularFile(trackDir.resolve(COVER_MAIN_JPG_FILE))
+            && Files.isRegularFile(trackDir.resolve(COVER_THUMB_JPG_FILE));
+    }
+
+    private Optional<Path> findCoverSourceFile(Path trackDir) {
+        if (trackDir == null || !Files.isDirectory(trackDir)) {
+            return Optional.empty();
+        }
+        List<String> preferred = List.of(
+            COVER_MAIN_JPG_FILE,
+            COVER_MAIN_AVIF_FILE,
+            "cover.jpg",
+            "cover.jpeg",
+            "cover.png",
+            "cover.webp"
+        );
+        for (String name : preferred) {
+            Path path = trackDir.resolve(name);
+            if (Files.isRegularFile(path)) {
+                return Optional.of(path);
+            }
+        }
+        return findCachedFile(trackDir, "cover.");
+    }
+
+    /**
+     * 生成主封面和缩略图两个版本，并同时尝试写出 avif 与 jpg。
+     */
+    private boolean ensureCoverVariants(Path trackDir, Path sourceFile) {
+        if (trackDir == null || sourceFile == null || !Files.isRegularFile(sourceFile)) {
+            return false;
+        }
+        try {
+            Files.createDirectories(trackDir);
+            Path mainJpg = trackDir.resolve(COVER_MAIN_JPG_FILE);
+            Path thumbJpg = trackDir.resolve(COVER_THUMB_JPG_FILE);
+            boolean mainOk = transcodeCoverVariant(sourceFile, mainJpg, coverMainSize, false);
+            boolean thumbOk = transcodeCoverVariant(sourceFile, thumbJpg, coverThumbSize, true);
+            if (!mainOk || !thumbOk) {
+                return false;
+            }
+            // avif 作为优先格式，失败时仍保留 jpg 兜底，避免页面空图。
+            transcodeCoverVariant(sourceFile, trackDir.resolve(COVER_MAIN_AVIF_FILE), coverMainSize, false, true);
+            transcodeCoverVariant(sourceFile, trackDir.resolve(COVER_THUMB_AVIF_FILE), coverThumbSize, true, true);
+            cleanupLegacyCoverFiles(trackDir);
+            return true;
+        } catch (Exception ex) {
+            log.warn("Failed to generate cover variants from {}", sourceFile, ex);
+            return false;
+        }
+    }
+
+    private void cleanupLegacyCoverFiles(Path trackDir) {
+        if (trackDir == null || !Files.isDirectory(trackDir)) {
+            return;
+        }
+        try (Stream<Path> stream = Files.list(trackDir)) {
+            for (Path path : stream.filter(Files::isRegularFile).toList()) {
+                String name = path.getFileName().toString();
+                if (!name.startsWith("cover")) {
+                    continue;
+                }
+                if (name.equals(COVER_MAIN_JPG_FILE)
+                    || name.equals(COVER_MAIN_AVIF_FILE)
+                    || name.equals(COVER_THUMB_JPG_FILE)
+                    || name.equals(COVER_THUMB_AVIF_FILE)) {
+                    continue;
+                }
+                Files.deleteIfExists(path);
+            }
+        } catch (IOException ex) {
+            log.debug("Failed to clean legacy cover files in {}", trackDir, ex);
+        }
+    }
+
+    private boolean transcodeCoverVariant(Path sourceFile, Path targetFile, int size, boolean thumb) {
+        return transcodeCoverVariant(sourceFile, targetFile, size, thumb, false);
+    }
+
+    private boolean transcodeCoverVariant(Path sourceFile, Path targetFile, int size, boolean thumb, boolean bestEffort) {
+        if (sourceFile != null
+            && targetFile != null
+            && sourceFile.toAbsolutePath().normalize().equals(targetFile.toAbsolutePath().normalize())
+            && Files.isRegularFile(targetFile)) {
+            return true;
+        }
+        String name = targetFile == null ? "" : targetFile.getFileName().toString().toLowerCase(Locale.ROOT);
+        boolean avif = name.endsWith(".avif");
+        List<String> command = new ArrayList<>();
+        command.add(ffmpegPath);
+        command.add("-y");
+        command.add("-loglevel");
+        command.add("error");
+        command.add("-i");
+        command.add(sourceFile.toAbsolutePath().normalize().toString());
+        command.add("-map_metadata");
+        command.add("-1");
+        command.add("-vf");
+        command.add("scale=" + size + ":" + size + ":force_original_aspect_ratio=increase,crop=" + size + ":" + size);
+        command.add("-frames:v");
+        command.add("1");
+        if (avif) {
+            command.add("-c:v");
+            command.add("libaom-av1");
+            command.add("-still-picture");
+            command.add("1");
+            command.add("-cpu-used");
+            command.add("6");
+            command.add("-crf");
+            command.add(thumb ? "36" : "33");
+            command.add("-b:v");
+            command.add("0");
+        } else {
+            command.add("-c:v");
+            command.add("mjpeg");
+            command.add("-q:v");
+            command.add(thumb ? "5" : "4");
+        }
+        command.add(targetFile.toAbsolutePath().normalize().toString());
+        if (runProcess(command, IMAGE_TRANSCODE_TIMEOUT_MS)) {
+            return Files.isRegularFile(targetFile);
+        }
+        if (!bestEffort) {
+            log.warn("Failed to transcode cover variant {}", targetFile);
+        }
+        return false;
+    }
+
+    private boolean runProcess(List<String> command, long timeoutMs) {
+        ProcessBuilder builder = new ProcessBuilder(command);
+        builder.redirectErrorStream(true);
+        try {
+            Process process = builder.start();
+            boolean finished = process.waitFor(timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                return false;
+            }
+            return process.exitValue() == 0;
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    private boolean acceptsAvif(String acceptHeader) {
+        if (isBlank(acceptHeader)) {
+            return false;
+        }
+        String lower = acceptHeader.toLowerCase(Locale.ROOT);
+        return lower.contains("image/avif");
+    }
+
+    private String normalizeCoverVariant(String variant) {
+        if (variant == null || variant.isBlank()) {
+            return COVER_VARIANT_COVER;
+        }
+        String normalized = variant.trim().toLowerCase(Locale.ROOT);
+        if (COVER_VARIANT_THUMB.equals(normalized)) {
+            return COVER_VARIANT_THUMB;
+        }
+        return COVER_VARIANT_COVER;
     }
 
     private String ensureAudio(Track track) {
@@ -533,6 +886,9 @@ public final class TrackMediaService {
         if (lowerType.contains("webp")) {
             return ".webp";
         }
+        if (lowerType.contains("avif")) {
+            return ".avif";
+        }
         if (lowerType.contains("mpeg")) {
             return ".mp3";
         }
@@ -557,7 +913,7 @@ public final class TrackMediaService {
         if (queryIndex >= 0) {
             lower = lower.substring(0, queryIndex);
         }
-        for (String ext : List.of(".jpg", ".jpeg", ".png", ".webp", ".mp3", ".ogg", ".webm", ".m4a", ".mp4")) {
+        for (String ext : List.of(".jpg", ".jpeg", ".png", ".webp", ".avif", ".mp3", ".ogg", ".webm", ".m4a", ".mp4")) {
             if (lower.endsWith(ext)) {
                 return ext;
             }
@@ -963,5 +1319,8 @@ public final class TrackMediaService {
     }
 
     private record CacheEntry(Path path, long lastAccessMillis, long sizeBytes) {
+    }
+
+    private record ProbeDecision(boolean available, long expiresAtMillis) {
     }
 }

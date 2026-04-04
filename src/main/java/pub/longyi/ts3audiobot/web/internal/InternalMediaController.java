@@ -1,5 +1,6 @@
 package pub.longyi.ts3audiobot.web.internal;
 
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.CacheControl;
@@ -7,6 +8,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import pub.longyi.ts3audiobot.media.TrackMediaService;
@@ -25,8 +27,13 @@ public final class InternalMediaController {
     }
 
     @GetMapping("/cover/{trackId}")
-    public ResponseEntity<Resource> cover(@PathVariable String trackId) {
-        Optional<Path> cover = trackMediaService.findCoverFile(trackId);
+    public ResponseEntity<Resource> cover(
+        @PathVariable String trackId,
+        @RequestParam(name = "variant", required = false) String variant,
+        HttpServletRequest request
+    ) {
+        String accept = request == null ? "" : request.getHeader("Accept");
+        Optional<Path> cover = trackMediaService.findCoverFile(trackId, variant, accept);
         if (cover.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
@@ -44,6 +51,9 @@ public final class InternalMediaController {
         }
         if (name.endsWith(".webp")) {
             return MediaType.parseMediaType("image/webp");
+        }
+        if (name.endsWith(".avif")) {
+            return MediaType.parseMediaType("image/avif");
         }
         return MediaType.IMAGE_JPEG;
     }

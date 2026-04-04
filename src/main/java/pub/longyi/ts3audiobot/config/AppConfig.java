@@ -218,6 +218,7 @@ public final class AppConfig {
         public final boolean audioCacheEnabled;
         public final int maxSizeGb;
         public final int cacheTtlHours;
+        public final MediaImage image;
 
         /**
          * 创建 Media 实例。
@@ -227,10 +228,69 @@ public final class AppConfig {
          * @param cacheTtlHours 参数 cacheTtlHours
          */
         public Media(boolean cacheEnabled, boolean audioCacheEnabled, int maxSizeGb, int cacheTtlHours) {
+            this(cacheEnabled, audioCacheEnabled, maxSizeGb, cacheTtlHours, MediaImage.defaults());
+        }
+
+        /**
+         * 创建 Media 实例。
+         * @param cacheEnabled 参数 cacheEnabled
+         * @param audioCacheEnabled 参数 audioCacheEnabled
+         * @param maxSizeGb 参数 maxSizeGb
+         * @param cacheTtlHours 参数 cacheTtlHours
+         * @param image 参数 image
+         */
+        public Media(
+            boolean cacheEnabled,
+            boolean audioCacheEnabled,
+            int maxSizeGb,
+            int cacheTtlHours,
+            MediaImage image
+        ) {
             this.cacheEnabled = cacheEnabled;
             this.audioCacheEnabled = audioCacheEnabled;
             this.maxSizeGb = maxSizeGb;
             this.cacheTtlHours = cacheTtlHours;
+            this.image = image == null ? MediaImage.defaults() : image;
+        }
+    }
+
+    /**
+     * MediaImage 相关功能。
+     *
+     * <p>职责：保存封面图直链/代理与尺寸策略。</p>
+     */
+    public static final class MediaImage {
+        public static final String MODE_HYBRID = "hybrid";
+        public static final String MODE_DIRECT = "direct";
+        public static final String MODE_PROXY = "proxy";
+
+        public final boolean enabled;
+        public final String mode;
+        public final int thumbSize;
+        public final int coverSize;
+
+        /**
+         * 创建 MediaImage 实例。
+         * @param enabled 参数 enabled
+         * @param mode 参数 mode
+         * @param thumbSize 参数 thumbSize
+         * @param coverSize 参数 coverSize
+         */
+        public MediaImage(boolean enabled, String mode, int thumbSize, int coverSize) {
+            this.enabled = enabled;
+            String normalizedMode = mode == null ? "" : mode.trim().toLowerCase();
+            if (!MODE_DIRECT.equals(normalizedMode)
+                && !MODE_HYBRID.equals(normalizedMode)
+                && !MODE_PROXY.equals(normalizedMode)) {
+                normalizedMode = MODE_HYBRID;
+            }
+            this.mode = normalizedMode;
+            this.thumbSize = Math.max(32, thumbSize);
+            this.coverSize = Math.max(64, coverSize);
+        }
+
+        public static MediaImage defaults() {
+            return new MediaImage(true, MODE_HYBRID, 120, 360);
         }
     }
 

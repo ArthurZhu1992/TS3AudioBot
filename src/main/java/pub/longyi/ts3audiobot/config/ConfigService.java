@@ -58,6 +58,10 @@ public final class ConfigService {
     private static final boolean DEFAULT_MEDIA_AUDIO_CACHE_ENABLED = true;
     private static final int DEFAULT_MEDIA_MAX_SIZE_GB = 20;
     private static final int DEFAULT_MEDIA_CACHE_TTL_HOURS = 24 * 30;
+    private static final boolean DEFAULT_MEDIA_IMAGE_ENABLED = true;
+    private static final String DEFAULT_MEDIA_IMAGE_MODE = AppConfig.MediaImage.MODE_HYBRID;
+    private static final int DEFAULT_MEDIA_IMAGE_THUMB_SIZE = 120;
+    private static final int DEFAULT_MEDIA_IMAGE_COVER_SIZE = 360;
     private static final int DEFAULT_WEB_PORT = 58913;
     private static final List<String> DEFAULT_HOSTS = List.of("*");
     private static final String DEFAULT_CLIENT_VERSION = "3.6.2 [Build: 1695203293]";
@@ -86,6 +90,10 @@ public final class ConfigService {
     private static final String KEY_MEDIA_AUDIO_CACHE_ENABLED = "media.audio_cache_enabled";
     private static final String KEY_MEDIA_MAX_SIZE_GB = "media.max_size_gb";
     private static final String KEY_MEDIA_CACHE_TTL_HOURS = "media.cache_ttl_hours";
+    private static final String KEY_MEDIA_IMAGE_ENABLED = "media.image.enabled";
+    private static final String KEY_MEDIA_IMAGE_MODE = "media.image.mode";
+    private static final String KEY_MEDIA_IMAGE_THUMB_SIZE = "media.image.thumb_size";
+    private static final String KEY_MEDIA_IMAGE_COVER_SIZE = "media.image.cover_size";
     private static final String KEY_STORAGE_DATA_DIR = "storage.data_dir";
     private static final String KEY_STORAGE_QUEUE_FILE = "storage.queue_file";
     private static final String KEY_CACHE_YTDLP_TEMP_DIR = "cache.ytdlp_temp_dir";
@@ -233,7 +241,13 @@ public final class ConfigService {
                 resolved.mediaCacheEnabled,
                 resolved.mediaAudioCacheEnabled,
                 resolved.mediaMaxSizeGb,
-                resolved.mediaCacheTtlHours
+                resolved.mediaCacheTtlHours,
+                new AppConfig.MediaImage(
+                    resolved.mediaImageEnabled,
+                    resolved.mediaImageMode,
+                    resolved.mediaImageThumbSize,
+                    resolved.mediaImageCoverSize
+                )
             ),
             new AppConfig.Resolvers(new AppConfig.ExternalResolvers(
                 resolved.yt,
@@ -266,6 +280,18 @@ public final class ConfigService {
             KEY_MEDIA_CACHE_TTL_HOURS,
             DEFAULT_MEDIA_CACHE_TTL_HOURS
         ));
+        boolean mediaImageEnabled = parseBooleanSetting(settings, KEY_MEDIA_IMAGE_ENABLED, DEFAULT_MEDIA_IMAGE_ENABLED);
+        String mediaImageMode = normalizeMediaImageMode(getSetting(settings, KEY_MEDIA_IMAGE_MODE, DEFAULT_MEDIA_IMAGE_MODE));
+        int mediaImageThumbSize = Math.max(32, parseIntSetting(
+            settings,
+            KEY_MEDIA_IMAGE_THUMB_SIZE,
+            DEFAULT_MEDIA_IMAGE_THUMB_SIZE
+        ));
+        int mediaImageCoverSize = Math.max(64, parseIntSetting(
+            settings,
+            KEY_MEDIA_IMAGE_COVER_SIZE,
+            DEFAULT_MEDIA_IMAGE_COVER_SIZE
+        ));
 
         String ffmpegPathRaw = getSetting(settings, KEY_FFMPEG, DEFAULT_FFMPEG_PATH);
         String ffmpegPath = FfmpegLocator.resolve(ffmpegPathRaw, configPath, autoDownload);
@@ -294,7 +320,11 @@ public final class ConfigService {
             mediaCacheEnabled,
             mediaAudioCacheEnabled,
             mediaMaxSizeGb,
-            mediaCacheTtlHours
+            mediaCacheTtlHours,
+            mediaImageEnabled,
+            mediaImageMode,
+            mediaImageThumbSize,
+            mediaImageCoverSize
         );
     }
 
@@ -473,6 +503,16 @@ public final class ConfigService {
             if (mediaCacheTtlHours != null) {
                 settings.put(KEY_MEDIA_CACHE_TTL_HOURS, Long.toString(mediaCacheTtlHours));
             }
+            putIfNotBlank(settings, KEY_MEDIA_IMAGE_ENABLED, toBooleanString(toml.getBoolean("media.image.enabled")));
+            putIfNotBlank(settings, KEY_MEDIA_IMAGE_MODE, toml.getString("media.image.mode"));
+            Long mediaImageThumbSize = toml.getLong("media.image.thumb_size");
+            if (mediaImageThumbSize != null) {
+                settings.put(KEY_MEDIA_IMAGE_THUMB_SIZE, Long.toString(mediaImageThumbSize));
+            }
+            Long mediaImageCoverSize = toml.getLong("media.image.cover_size");
+            if (mediaImageCoverSize != null) {
+                settings.put(KEY_MEDIA_IMAGE_COVER_SIZE, Long.toString(mediaImageCoverSize));
+            }
             putIfNotBlank(settings, KEY_CACHE_YTDLP_TEMP_DIR, toml.getString("cache.ytdlp_temp_dir"));
             putIfNotBlank(settings, KEY_CACHE_YTDLP_CACHE_DIR, toml.getString("cache.ytdlp_cache_dir"));
 
@@ -515,6 +555,10 @@ public final class ConfigService {
         putSpring(settings, KEY_MEDIA_AUDIO_CACHE_ENABLED, environment, "ts3audiobot.media.audio-cache-enabled");
         putSpring(settings, KEY_MEDIA_MAX_SIZE_GB, environment, "ts3audiobot.media.max-size-gb");
         putSpring(settings, KEY_MEDIA_CACHE_TTL_HOURS, environment, "ts3audiobot.media.cache-ttl-hours");
+        putSpring(settings, KEY_MEDIA_IMAGE_ENABLED, environment, "ts3audiobot.media.image.enabled");
+        putSpring(settings, KEY_MEDIA_IMAGE_MODE, environment, "ts3audiobot.media.image.mode");
+        putSpring(settings, KEY_MEDIA_IMAGE_THUMB_SIZE, environment, "ts3audiobot.media.image.thumb-size");
+        putSpring(settings, KEY_MEDIA_IMAGE_COVER_SIZE, environment, "ts3audiobot.media.image.cover-size");
         putSpring(settings, KEY_STORAGE_DATA_DIR, environment, "ts3audiobot.storage.data-dir");
         putSpring(settings, KEY_STORAGE_QUEUE_FILE, environment, "ts3audiobot.storage.queue-file");
         putSpring(settings, KEY_CACHE_YTDLP_TEMP_DIR, environment, "ts3audiobot.cache.ytdlp-temp-dir");
@@ -679,6 +723,19 @@ public final class ConfigService {
             return false;
         }
         return defaultValue;
+    }
+
+    private static String normalizeMediaImageMode(String mode) {
+        if (mode == null || mode.isBlank()) {
+            return DEFAULT_MEDIA_IMAGE_MODE;
+        }
+        String normalized = mode.trim().toLowerCase();
+        if (AppConfig.MediaImage.MODE_DIRECT.equals(normalized)
+            || AppConfig.MediaImage.MODE_HYBRID.equals(normalized)
+            || AppConfig.MediaImage.MODE_PROXY.equals(normalized)) {
+            return normalized;
+        }
+        return DEFAULT_MEDIA_IMAGE_MODE;
     }
 
     private static List<String> parseHostsSetting(String hostsRaw) {
@@ -926,7 +983,11 @@ public final class ConfigService {
         boolean mediaCacheEnabled,
         boolean mediaAudioCacheEnabled,
         int mediaMaxSizeGb,
-        int mediaCacheTtlHours
+        int mediaCacheTtlHours,
+        boolean mediaImageEnabled,
+        String mediaImageMode,
+        int mediaImageThumbSize,
+        int mediaImageCoverSize
     ) {
     }
 

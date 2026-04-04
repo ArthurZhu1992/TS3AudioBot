@@ -778,7 +778,7 @@
                 <div class="card-body">
                     <div class="album-art" id="album-art">
                         <img th:if="${currentIndex >= 0 and queue.size() > currentIndex and queue.get(currentIndex).track().coverUrl() != null and !#strings.isEmpty(queue.get(currentIndex).track().coverUrl())}"
-                             th:src="${queue.get(currentIndex).track().coverUrl()}"
+                             th:src="${#strings.startsWith(queue.get(currentIndex).track().coverUrl(), '/internal/media/cover/') ? queue.get(currentIndex).track().coverUrl() + '?variant=cover' : queue.get(currentIndex).track().coverUrl()}"
                              alt="cover"
                              referrerpolicy="no-referrer" />
                         <i class="fas fa-music"
@@ -846,7 +846,7 @@
                                  th:data-item-id="${item.id()}">
                                 <div class="queue-cover">
                                     <img th:if="${item.track().coverUrl() != null and !#strings.isEmpty(item.track().coverUrl())}"
-                                         th:src="${item.track().coverUrl()}"
+                                         th:src="${#strings.startsWith(item.track().coverUrl(), '/internal/media/cover/') ? item.track().coverUrl() + '?variant=thumb' : item.track().coverUrl()}"
                                          alt="cover"
                                          loading="lazy"
                                          referrerpolicy="no-referrer" />
@@ -1361,7 +1361,12 @@
         const safeUrl = typeof url === 'string' ? url.trim() : '';
         $albumArt.empty();
         if (safeUrl) {
-            $('<img>', { src: safeUrl, alt: 'cover', loading: 'lazy', referrerpolicy: 'no-referrer' }).appendTo($albumArt);
+            $('<img>', {
+                src: resolveCoverVariantUrl(safeUrl, 'cover'),
+                alt: 'cover',
+                loading: 'lazy',
+                referrerpolicy: 'no-referrer'
+            }).appendTo($albumArt);
             return;
         }
         $('<i>', { class: 'fas fa-music' }).appendTo($albumArt);
@@ -1620,6 +1625,16 @@
         return typeof value === 'string' && /^https?:\/\//i.test(value.trim());
     }
 
+    function resolveCoverVariantUrl(url, variant) {
+        const safeUrl = typeof url === 'string' ? url.trim() : '';
+        if (!safeUrl || !safeUrl.startsWith('/internal/media/cover/')) {
+            return safeUrl;
+        }
+        const safeVariant = variant === 'thumb' ? 'thumb' : 'cover';
+        const joiner = safeUrl.includes('?') ? '&' : '?';
+        return `${safeUrl}${joiner}variant=${safeVariant}`;
+    }
+
     function isTrackMetadataIncomplete(track) {
         if (!track || !isHttpUrl(track.sourceId)) {
             return false;
@@ -1654,8 +1669,9 @@
 
     function buildQueueRow(item) {
         const track = item && item.track ? item.track : {};
-        const coverTag = track.coverUrl
-            ? `<img src="${escapeHtml(track.coverUrl)}" alt="cover" loading="lazy" referrerpolicy="no-referrer" />`
+        const queueCoverUrl = resolveCoverVariantUrl(track.coverUrl, 'thumb');
+        const coverTag = queueCoverUrl
+            ? `<img src="${escapeHtml(queueCoverUrl)}" alt="cover" loading="lazy" referrerpolicy="no-referrer" />`
             : '<i class="fas fa-music"></i>';
         const title = escapeHtml(track.title || '未知歌曲');
         const metaLine = escapeHtml(buildTrackMetaLine(track));
@@ -1988,8 +2004,9 @@
         const ref = buildTrackReference(item);
         const title = escapeHtml(item.title || '未知歌曲');
         const vipBadge = renderTrackVipBadge(item);
+        const itemCoverUrl = resolveCoverVariantUrl(item.coverUrl, 'thumb');
         const coverTag = item.coverUrl
-            ? `<img class="search-cover" src="${item.coverUrl}" alt="cover" loading="lazy" referrerpolicy="no-referrer" />`
+            ? `<img class="search-cover" src="${itemCoverUrl}" alt="cover" loading="lazy" referrerpolicy="no-referrer" />`
             : `<div class="search-cover"></div>`;
         const encodedItem = encodeQueueAddItem(item);
         return `
@@ -2029,8 +2046,9 @@
             return;
         }
         const html = items.map((item) => {
+            const playlistCoverUrl = resolveCoverVariantUrl(item.coverUrl, 'thumb');
             const coverTag = item.coverUrl
-                ? `<img class="search-cover" src="${item.coverUrl}" alt="cover" loading="lazy" referrerpolicy="no-referrer" />`
+                ? `<img class="search-cover" src="${playlistCoverUrl}" alt="cover" loading="lazy" referrerpolicy="no-referrer" />`
                 : `<div class="search-cover"></div>`;
             const countText = item.trackCount ? `${item.trackCount} 首` : '';
             const playText = formatPlayCount(item.playCount);
