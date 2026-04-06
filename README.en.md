@@ -69,6 +69,17 @@ qq = "qqmusic"
 cache_enabled = true
 audio_cache_enabled = true
 max_size_gb = 20
+cache_ttl_hours = 720
+
+[media.image]
+enabled = true
+# mode options:
+# - "direct": source URL only (no local proxy)
+# - "hybrid": source URL first, auto fallback to local proxy if image load fails
+# - "proxy": always use local proxy and resized cover
+mode = "hybrid"
+thumb_size = 120
+cover_size = 360
 ```
 Notes:
 - All keys are optional; invalid values fall back to built-in defaults
@@ -109,6 +120,11 @@ Open the web console. On first run you will be redirected to `/setup` to create 
 - `media.cache_enabled`: global media cache switch (cover + audio)
 - `media.audio_cache_enabled`: enable persisted audio cache (disable to keep only cover cache)
 - `media.max_size_gb`: media cache capacity limit in GB (LRU cleanup for unreferenced files)
+- `media.cache_ttl_hours`: media cache TTL in hours
+- `media.image.enabled`: image strategy switch
+- `media.image.mode`: `direct` / `hybrid` / `proxy`
+- `media.image.thumb_size`: proxy thumbnail max edge (px)
+- `media.image.cover_size`: proxy cover max edge (px)
 
 ### Data Storage
 - Bots/Admin: `data/ts3audiobot.db`

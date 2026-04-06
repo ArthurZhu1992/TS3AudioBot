@@ -3,6 +3,7 @@ package pub.longyi.ts3audiobot.config;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Created by: Arthur Zhu
@@ -218,6 +219,7 @@ public final class AppConfig {
         public final boolean audioCacheEnabled;
         public final int maxSizeGb;
         public final int cacheTtlHours;
+        public final Image image;
 
         /**
          * 创建 Media 实例。
@@ -227,10 +229,48 @@ public final class AppConfig {
          * @param cacheTtlHours 参数 cacheTtlHours
          */
         public Media(boolean cacheEnabled, boolean audioCacheEnabled, int maxSizeGb, int cacheTtlHours) {
+            this(cacheEnabled, audioCacheEnabled, maxSizeGb, cacheTtlHours, new Image(true, ImageMode.HYBRID, 120, 360));
+        }
+
+        public Media(boolean cacheEnabled, boolean audioCacheEnabled, int maxSizeGb, int cacheTtlHours, Image image) {
             this.cacheEnabled = cacheEnabled;
             this.audioCacheEnabled = audioCacheEnabled;
             this.maxSizeGb = maxSizeGb;
             this.cacheTtlHours = cacheTtlHours;
+            this.image = image == null ? new Image(true, ImageMode.HYBRID, 120, 360) : image;
+        }
+    }
+
+    public enum ImageMode {
+        DIRECT,
+        HYBRID,
+        PROXY;
+
+        public static ImageMode from(String raw, ImageMode defaultMode) {
+            if (raw == null || raw.isBlank()) {
+                return defaultMode == null ? HYBRID : defaultMode;
+            }
+            String normalized = raw.trim().toLowerCase(Locale.ROOT);
+            return switch (normalized) {
+                case "direct" -> DIRECT;
+                case "proxy" -> PROXY;
+                case "hybrid" -> HYBRID;
+                default -> defaultMode == null ? HYBRID : defaultMode;
+            };
+        }
+    }
+
+    public static final class Image {
+        public final boolean enabled;
+        public final ImageMode mode;
+        public final int thumbSize;
+        public final int coverSize;
+
+        public Image(boolean enabled, ImageMode mode, int thumbSize, int coverSize) {
+            this.enabled = enabled;
+            this.mode = mode == null ? ImageMode.HYBRID : mode;
+            this.thumbSize = Math.max(1, thumbSize);
+            this.coverSize = Math.max(1, coverSize);
         }
     }
 

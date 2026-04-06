@@ -71,6 +71,17 @@ qq = "qqmusic"
 cache_enabled = true
 audio_cache_enabled = true
 max_size_gb = 20
+cache_ttl_hours = 720
+
+[media.image]
+enabled = true
+# mode 可选值：
+# - "direct": 必须直链，仅使用源图片 URL，不走本地代理
+# - "hybrid": 优先直链，失败自动回退本地代理
+# - "proxy": 全部走本地代理和压缩图
+mode = "hybrid"
+thumb_size = 120
+cover_size = 360
 ```
 说明：
 - 所有字段都可选，空值或非法值会自动回退到内置默认
@@ -111,6 +122,11 @@ java -jar build/libs/TS3AudioBot-0.0.1-SNAPSHOT.jar
 - `media.cache_enabled`：媒体缓存总开关（封面 + 音频）
 - `media.audio_cache_enabled`：音频落盘缓存开关（关闭后仅缓存封面）
 - `media.max_size_gb`：媒体缓存容量上限（GB，超限按最近最少使用清理未引用文件）
+- `media.cache_ttl_hours`：媒体缓存过期时间（小时）
+- `media.image.enabled`：图片策略开关
+- `media.image.mode`：`direct` / `hybrid` / `proxy`
+- `media.image.thumb_size`：缩略图代理最大边（px）
+- `media.image.cover_size`：封面图代理最大边（px）
 
 ### 数据与存储
 - 机器人/管理员配置：`data/ts3audiobot.db`

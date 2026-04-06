@@ -4,11 +4,15 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
+import pub.longyi.ts3audiobot.config.AppConfig;
 import pub.longyi.ts3audiobot.config.ConfigService;
 import pub.longyi.ts3audiobot.queue.Track;
 import pub.longyi.ts3audiobot.search.SearchAuthService;
 import pub.longyi.ts3audiobot.search.SearchAuthStore;
 
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
+import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -31,6 +35,7 @@ import java.util.Optional;
 import java.util.Properties;
 import java.util.UUID;
 import java.util.stream.Stream;
+import javax.imageio.ImageIO;
 
 @Slf4j
 @Service
@@ -53,6 +58,8 @@ public final class TrackMediaService {
     private static final String BINDING_AUDIO_KEY = "audioKey";
     private static final String BINDING_COVER_KEY = "coverKey";
     private static final int DEFAULT_CACHE_TTL_HOURS = 24 * 30;
+    private static final int DEFAULT_THUMB_SIZE = 120;
+    private static final int DEFAULT_COVER_SIZE = 360;
     private static final Duration TMP_ENTRY_TTL = Duration.ofHours(6);
     private static final long BYTES_PER_GB = 1024L * 1024L * 1024L;
 
@@ -65,6 +72,10 @@ public final class TrackMediaService {
     private final Path tmpCacheDir;
     private final boolean mediaCacheEnabled;
     private final boolean audioCacheEnabled;
+    private final boolean imageEnabled;
+    private final AppConfig.ImageMode imageMode;
+    private final int imageThumbSize;
+    private final int imageCoverSize;
     private final Duration cacheEntryTtl;
     private final long maxCacheBytes;
 
@@ -79,6 +90,11 @@ public final class TrackMediaService {
         var mediaConfig = configService.get().media;
         this.mediaCacheEnabled = mediaConfig != null && mediaConfig.cacheEnabled;
         this.audioCacheEnabled = mediaConfig != null && mediaConfig.audioCacheEnabled;
+        AppConfig.Image imageConfig = mediaConfig == null ? null : mediaConfig.image;
+        this.imageEnabled = imageConfig == null || imageConfig.enabled;
+        this.imageMode = imageConfig == null ? AppConfig.ImageMode.HYBRID : imageConfig.mode;
+        this.imageThumbSize = imageConfig == null ? DEFAULT_THUMB_SIZE : Math.max(1, imageConfig.thumbSize);
+        this.imageCoverSize = imageConfig == null ? DEFAULT_COVER_SIZE : Math.max(1, imageConfig.coverSize);
         int ttlHours = mediaConfig == null ? DEFAULT_CACHE_TTL_HOURS : Math.max(1, mediaConfig.cacheTtlHours);
         int maxSizeGb = mediaConfig == null ? 20 : Math.max(1, mediaConfig.maxSizeGb);
         this.cacheEntryTtl = Duration.ofHours(ttlHours);
@@ -131,6 +147,36 @@ public final class TrackMediaService {
     }
 
     public Optional<Path> findCoverFile(String trackId) {
+        return findCoverFile(trackId, 0);
+    }
+
+    public Optional<Path> findCoverFile(String trackId, int maxEdge) {
+        Optional<Path> base = findCoverBaseFile(trackId);
+        if (base.isEmpty() || maxEdge <= 0) {
+            return base;
+        }
+        Path resized = ensureSizedCover(base.get(), maxEdge);
+        return Optional.ofNullable(resized == null ? base.get() : resized);
+    }
+
+    public int resolveImageSizeForAlias(String alias) {
+        String normalized = alias == null ? "" : alias.trim().toLowerCase(Locale.ROOT);
+        if ("thumb".equals(normalized)) {
+            return imageThumbSize;
+        }
+        if ("cover".equals(normalized)) {
+            return imageCoverSize;
+        }
+        if (!normalized.isBlank()) {
+            try {
+                return Math.max(0, Integer.parseInt(normalized));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return 0;
+    }
+
+    private Optional<Path> findCoverBaseFile(String trackId) {
         if (isBlank(trackId)) {
             return Optional.empty();
         }
@@ -186,27 +232,33 @@ public final class TrackMediaService {
     }
 
     private String ensureCover(Track track) {
-        if (!mediaCacheEnabled) {
-            String coverUrl = track == null ? "" : track.coverUrl();
-            return coverUrl == null ? "" : coverUrl;
+        String coverUrl = track == null ? "" : track.coverUrl();
+        String safeCoverUrl = coverUrl == null ? "" : coverUrl;
+        if (!imageEnabled || imageMode == AppConfig.ImageMode.DIRECT) {
+            return safeCoverUrl;
         }
+        if (!mediaCacheEnabled) {
+            return safeCoverUrl;
+        }
+        boolean hybridMode = imageMode == AppConfig.ImageMode.HYBRID;
+        boolean preferDirect = hybridMode && isHttpUrl(safeCoverUrl);
         if (track == null || isBlank(track.id())) {
-            return track.coverUrl() == null ? "" : track.coverUrl();
+            return safeCoverUrl;
         }
         Path trackDir = ensureCacheEntryDir(trackCacheDir, track.id());
         if (trackDir == null) {
-            return track.coverUrl() == null ? "" : track.coverUrl();
+            return safeCoverUrl;
         }
         Optional<Path> cached = findCachedFile(trackDir, "cover.");
         if (cached.isPresent()) {
             markCacheEntryTouched(trackDir);
-            return buildCoverUrl(track.id());
+            return preferDirect ? safeCoverUrl : buildCoverUrl(track.id());
         }
         Optional<Path> migrated = importLegacyCache(resolveLegacyTrackDir(track), "cover.", trackDir, "cover");
         if (migrated.isPresent()) {
             markCacheEntryTouched(trackDir);
             enforceCacheSizeLimitIfNeeded();
-            return buildCoverUrl(track.id());
+            return preferDirect ? safeCoverUrl : buildCoverUrl(track.id());
         }
         String legacyCoverKey = firstNonBlank(
             readLegacyBindingKey(track.id(), BINDING_COVER_KEY).orElse(""),
@@ -221,23 +273,22 @@ public final class TrackMediaService {
         if (migratedLegacyShared.isPresent()) {
             markCacheEntryTouched(trackDir);
             enforceCacheSizeLimitIfNeeded();
-            return buildCoverUrl(track.id());
+            return preferDirect ? safeCoverUrl : buildCoverUrl(track.id());
         }
-        String coverUrl = track.coverUrl();
-        if (!isHttpUrl(coverUrl)) {
-            return coverUrl == null ? "" : coverUrl;
+        if (!isHttpUrl(safeCoverUrl)) {
+            return safeCoverUrl;
         }
         try {
-            DownloadedFile downloaded = downloadHttpFile(coverUrl, trackDir, "cover", true);
+            DownloadedFile downloaded = downloadHttpFile(safeCoverUrl, trackDir, "cover", true);
             if (downloaded != null) {
                 markCacheEntryTouched(trackDir);
                 enforceCacheSizeLimitIfNeeded();
-                return buildCoverUrl(track.id());
+                return preferDirect ? safeCoverUrl : buildCoverUrl(track.id());
             }
         } catch (Exception ex) {
             log.warn("Failed to cache cover for track {}", track.id(), ex);
         }
-        return coverUrl;
+        return safeCoverUrl;
     }
 
     private String ensureAudio(Track track) {
@@ -565,6 +616,70 @@ public final class TrackMediaService {
         return "";
     }
 
+    private Path ensureSizedCover(Path source, int maxEdge) {
+        if (source == null || maxEdge <= 0 || Files.notExists(source)) {
+            return source;
+        }
+        try {
+            BufferedImage original = ImageIO.read(source.toFile());
+            if (original == null) {
+                return source;
+            }
+            int sourceWidth = Math.max(1, original.getWidth());
+            int sourceHeight = Math.max(1, original.getHeight());
+            int longest = Math.max(sourceWidth, sourceHeight);
+            if (longest <= maxEdge) {
+                return source;
+            }
+            int targetWidth;
+            int targetHeight;
+            if (sourceWidth >= sourceHeight) {
+                targetWidth = maxEdge;
+                targetHeight = Math.max(1, (int) Math.round((double) sourceHeight * maxEdge / sourceWidth));
+            } else {
+                targetHeight = maxEdge;
+                targetWidth = Math.max(1, (int) Math.round((double) sourceWidth * maxEdge / sourceHeight));
+            }
+            Path parent = source.getParent();
+            if (parent == null) {
+                return source;
+            }
+            Path target = parent.resolve("cover-" + maxEdge + ".jpg");
+            long sourceModified = Files.getLastModifiedTime(source).toMillis();
+            if (Files.exists(target) && Files.getLastModifiedTime(target).toMillis() >= sourceModified) {
+                return target;
+            }
+            BufferedImage resized = resizeImage(original, targetWidth, targetHeight);
+            Path temp = createTempFile("cover-" + maxEdge, ".jpg");
+            try {
+                if (!ImageIO.write(resized, "jpg", temp.toFile())) {
+                    return source;
+                }
+                Files.move(temp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+                return target;
+            } finally {
+                Files.deleteIfExists(temp);
+            }
+        } catch (Exception ex) {
+            log.debug("Failed to generate sized cover {} edge={}", source, maxEdge, ex);
+            return source;
+        }
+    }
+
+    private BufferedImage resizeImage(BufferedImage source, int width, int height) {
+        BufferedImage rgb = new BufferedImage(Math.max(1, width), Math.max(1, height), BufferedImage.TYPE_INT_RGB);
+        Graphics2D graphics = rgb.createGraphics();
+        try {
+            graphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            graphics.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+            graphics.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            graphics.drawImage(source, 0, 0, rgb.getWidth(), rgb.getHeight(), null);
+        } finally {
+            graphics.dispose();
+        }
+        return rgb;
+    }
+
     private Optional<Path> findCachedFile(Path trackDir, String prefix) {
         if (trackDir == null || !Files.isDirectory(trackDir)) {
             return Optional.empty();
@@ -695,7 +810,7 @@ public final class TrackMediaService {
     }
 
     private String buildCoverUrl(String trackId) {
-        return "/internal/media/cover/" + sanitizeSegment(trackId);
+        return "/internal/media/cover/" + sanitizeSegment(trackId) + "?size=cover";
     }
 
     private void cleanStaleCacheEntries(Path baseDir, Duration ttl) throws IOException {

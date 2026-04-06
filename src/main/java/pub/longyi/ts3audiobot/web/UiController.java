@@ -4,12 +4,15 @@ import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import pub.longyi.ts3audiobot.bot.BotInstance;
 import pub.longyi.ts3audiobot.bot.BotManager;
+import pub.longyi.ts3audiobot.bot.BotStatus;
 import pub.longyi.ts3audiobot.config.ConfigService;
 import pub.longyi.ts3audiobot.config.AppConfig;
 import pub.longyi.ts3audiobot.ts3.full.IdentityData;
 import pub.longyi.ts3audiobot.ts3.full.TsCrypt;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import pub.longyi.ts3audiobot.queue.QueueService;
 
@@ -71,11 +74,7 @@ public final class UiController {
         for (AppConfig.BotConfig bot : bots) {
             String name = bot.name;
             var instance = botManager.get(name);
-            if (instance != null) {
-                statuses.put(name, instance.status().toString());
-            } else {
-                statuses.put(name, "STOPPED");
-            }
+            statuses.put(name, resolveRuntimeState(instance));
             if (bot.identity != null && !bot.identity.isBlank() && bot.identityOffset > 0) {
                 try {
                     IdentityData identity = TsCrypt.loadIdentityDynamic(bot.identity, 0);
@@ -89,6 +88,23 @@ public final class UiController {
         model.addAttribute("statuses", statuses);
         model.addAttribute("identityLevels", identityLevels);
         return "index";
+    }
+
+    private String resolveRuntimeState(BotInstance instance) {
+        if (instance == null) {
+            return "OFFLINE";
+        }
+        if (instance.isConnected()) {
+            return "ONLINE";
+        }
+        BotStatus status = instance.status();
+        if (status == BotStatus.ERROR) {
+            return "ERROR";
+        }
+        if (status == BotStatus.STARTING || status == BotStatus.RUNNING || instance.isConnectInProgress()) {
+            return "CONNECTING";
+        }
+        return "OFFLINE";
     }
 
 
@@ -105,6 +121,7 @@ public final class UiController {
         @RequestParam(required = false) String playlistId,
         Model model
     ) {
+        applyMediaImageConfig(model);
         model.addAttribute("bots", botManager.list());
         if (botId == null || botId.isBlank()) {
             model.addAttribute("botId", "");
@@ -147,6 +164,7 @@ public final class UiController {
         @RequestParam(required = false) String playlistId,
         Model model
     ) {
+        applyMediaImageConfig(model);
         model.addAttribute("bots", botManager.list());
         if (botId == null || botId.isBlank()) {
             model.addAttribute("botId", "");
@@ -185,5 +203,17 @@ public final class UiController {
     public String settings(Model model) {
         model.addAttribute("bots", botManager.list());
         return "settings";
+    }
+
+    private void applyMediaImageConfig(Model model) {
+        AppConfig.Media media = configService.get().media;
+        AppConfig.Image image = media == null ? null : media.image;
+        AppConfig.ImageMode mode = image == null ? AppConfig.ImageMode.HYBRID : image.mode;
+        int thumbSize = image == null ? 120 : Math.max(1, image.thumbSize);
+        int coverSize = image == null ? 360 : Math.max(1, image.coverSize);
+        model.addAttribute("mediaImageMode", mode.name().toLowerCase(Locale.ROOT));
+        model.addAttribute("mediaImageEnabled", image == null || image.enabled);
+        model.addAttribute("mediaImageThumbSize", thumbSize);
+        model.addAttribute("mediaImageCoverSize", coverSize);
     }
 }

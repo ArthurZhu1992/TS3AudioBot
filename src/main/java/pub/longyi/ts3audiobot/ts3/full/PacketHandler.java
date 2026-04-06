@@ -88,6 +88,7 @@ public final class PacketHandler {
      * @return 返回值
      */
     public boolean connect(InetSocketAddress address, TsCrypt tsCrypt) {
+        resetSessionState();
         this.remote = address;
         this.tsCrypt = tsCrypt;
         log.info("[TS3] PacketHandler connect {}", address);
@@ -110,15 +111,15 @@ public final class PacketHandler {
      * 执行 stop 操作。
      */
     public void stop() {
-        if (!connected) {
-            return;
-        }
+        boolean wasConnected = connected;
         connected = false;
         stopScheduler();
         if (socket != null) {
             socket.close();
+            socket = null;
         }
-        if (stopEvent != null) {
+        resetSessionState();
+        if (wasConnected && stopEvent != null) {
             stopEvent.accept("stopped");
         }
     }
@@ -339,6 +340,21 @@ public final class PacketHandler {
         if (scheduler != null) {
             scheduler.shutdownNow();
             scheduler = null;
+        }
+    }
+
+    private void resetSessionState() {
+        resendCommand.clear();
+        resendCommandLow.clear();
+        init1Entry = null;
+        incomingNextIds.clear();
+        incomingGenerations.clear();
+        pingSentTimes.clear();
+        pingId = 0;
+        pingGeneration = 0;
+        clientId = 0;
+        synchronized (pingLock) {
+            pingSamples.clear();
         }
     }
 

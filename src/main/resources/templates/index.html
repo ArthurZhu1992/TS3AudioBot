@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>机器人管理 - TS3AudioBot</title>
     <link rel="icon" type="image/svg+xml" th:href="@{/favicon.svg}" href="/favicon.svg" />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700&display=swap" />
-    <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.3/css/bootstrap.min.css" onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css';" />
+    <link rel="stylesheet" th:href="@{/css/font-manrope.css}" href="/css/font-manrope.css" />
+    <link rel="stylesheet" href="https://cdn.staticfile.org/twitter-bootstrap/5.3.3/css/bootstrap.min.css" onerror="this.onerror=null;this.href='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css';" />
     <style>
         :root {
             --primary: #4361ee;
@@ -157,6 +157,10 @@
             color: var(--danger);
         }
 
+        .toggle-connect-btn {
+            min-width: 72px;
+        }
+
         .text-muted {
             color: var(--muted) !important;
         }
@@ -283,15 +287,21 @@
                         </tr>
                         </thead>
                         <tbody>
-                        <tr th:each="bot : ${bots}">
+                        <tr th:each="bot : ${bots}" th:with="state=${statuses[bot.name]}" class="bot-row" th:attr="data-name=${bot.name}">
                             <td class="fw-semibold" th:text="${bot.name}">bot</td>
                             <td>
-                                <span class="badge text-bg-secondary status-badge" th:text="${statuses[bot.name]}" th:attr="data-status=${statuses[bot.name]}">status</span>
+                                <span class="badge text-bg-secondary status-badge"
+                                      th:text="${state == 'ONLINE' ? '在线' : (state == 'CONNECTING' ? '连接中' : (state == 'ERROR' ? '异常' : '离线'))}"
+                                      th:attr="data-status=${state}">离线</span>
                             </td>
                             <td class="text-muted" th:text="${bot.connectAddress}">address</td>
                             <td th:text="${bot.channel}">channel</td>
                             <td class="text-end">
                                 <div class="btn-group btn-group-sm" role="group">
+                                    <button type="button"
+                                            th:class="${'btn toggle-connect-btn ' + (state == 'ONLINE' ? 'btn-outline-warning' : 'btn-outline-success')}"
+                                            th:attr="data-name=${bot.name}"
+                                            th:text="${state == 'ONLINE' ? '断开' : '连接'}">连接</button>
                                     <button class="btn btn-outline-primary edit-btn" type="button"
                                             th:attr="data-name=${bot.name},data-run=${bot.run},data-address=${bot.connectAddress},data-channel=${bot.channel},data-nickname=${bot.nickname},data-server-password=${bot.serverPassword},data-channel-password=${bot.channelPassword},data-identity=${bot.identity},data-identity-offset=${bot.identityKeyOffset},data-client-version=${bot.clientVersion},data-client-platform=${bot.clientPlatform},data-client-sign=${bot.clientVersionSign},data-client-hwid=${bot.clientHwid},data-client-phonetic=${bot.clientNicknamePhonetic},data-client-token=${bot.clientDefaultToken}">编辑</button>
                                     <button class="btn btn-outline-danger delete-btn" type="button" th:attr="data-name=${bot.name}">删除</button>
@@ -430,8 +440,8 @@
     </div>
 </div>
 
-<script src="https://cdn.bootcdn.net/ajax/libs/jquery/3.7.1/jquery.min.js" onerror="this.onerror=null;this.src='https://code.jquery.com/jquery-3.7.1.min.js';"></script>
-<script src="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.3/js/bootstrap.bundle.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js';"></script>
+<script src="https://cdn.staticfile.org/jquery/3.7.1/jquery.min.js" onerror="this.onerror=null;this.src='https://code.jquery.com/jquery-3.7.1.min.js';"></script>
+<script src="https://cdn.staticfile.org/twitter-bootstrap/5.3.3/js/bootstrap.bundle.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js';"></script>
 <script src="/js/dependency-banner.js"></script>
 <script>
     const $form = $('#botForm');
@@ -440,8 +450,19 @@
     const $formAlert = $('#formAlert');
     const $submitBtn = $('#submitBtn');
     const $deleteTargetName = $('#deleteTargetName');
+    const STATUS_LABELS = {
+        ONLINE: '在线',
+        OFFLINE: '离线',
+        CONNECTING: '连接中',
+        ERROR: '异常'
+    };
+    const runtimeStates = new Map();
+    const runtimePendingActions = new Map();
+    const RUNTIME_POLL_INTERVAL_MS = 3000;
     let deleteTarget = '';
     let deleteModal = null;
+    let runtimePollTimer = null;
+    let runtimePolling = false;
 
     function showAlert(message) {
         if (!message) return;
@@ -452,20 +473,179 @@
         $formAlert.addClass('d-none').text('');
     }
 
+    function normalizeRuntimeState(rawState, online) {
+        const value = String(rawState || '').trim().toUpperCase();
+        if (value === 'ONLINE') return 'ONLINE';
+        if (value === 'OFFLINE' || value === 'STOPPED') return 'OFFLINE';
+        if (value === 'CONNECTING' || value === 'STARTING') return 'CONNECTING';
+        if (value === 'ERROR' || value === 'FAILED') return 'ERROR';
+        if (value === 'RUNNING') {
+            return online ? 'ONLINE' : 'CONNECTING';
+        }
+        if (value.includes('ONLINE') || value.includes('CONNECTED')) return 'ONLINE';
+        if (value.includes('START') || value.includes('CONNECT')) return 'CONNECTING';
+        if (value.includes('ERROR') || value.includes('FAIL')) return 'ERROR';
+        return online ? 'ONLINE' : 'OFFLINE';
+    }
+
+    function resolveBadgeClass(state) {
+        if (state === 'ONLINE') return 'text-bg-success';
+        if (state === 'CONNECTING') return 'text-bg-warning';
+        if (state === 'ERROR') return 'text-bg-danger';
+        return 'text-bg-secondary';
+    }
+
+    function resolveStatusLabel(state) {
+        return STATUS_LABELS[state] || STATUS_LABELS.OFFLINE;
+    }
+
+    function applyStatusBadge($badge, state) {
+        const normalized = normalizeRuntimeState(state, state === 'ONLINE');
+        $badge
+            .removeClass('text-bg-secondary text-bg-success text-bg-warning text-bg-danger')
+            .addClass(resolveBadgeClass(normalized))
+            .attr('data-status', normalized)
+            .text(resolveStatusLabel(normalized));
+    }
+
     function applyStatusBadges() {
         $('.status-badge').each(function () {
-            const status = String($(this).data('status') || '').toLowerCase();
-            let cls = 'text-bg-secondary';
-            if (status.includes('run') || status.includes('online')) {
-                cls = 'text-bg-success';
-            } else if (status.includes('start') || status.includes('connect')) {
-                cls = 'text-bg-warning';
-            } else if (status.includes('error') || status.includes('fail')) {
-                cls = 'text-bg-danger';
+            const status = String($(this).attr('data-status') || '');
+            applyStatusBadge($(this), status);
+        });
+    }
+
+    function bootstrapRuntimeStatesFromDom() {
+        $('.bot-row').each(function () {
+            const $row = $(this);
+            const name = String($row.attr('data-name') || '').trim();
+            if (!name) {
+                return;
             }
-            $(this)
-                .removeClass('text-bg-secondary text-bg-success text-bg-warning text-bg-danger')
-                .addClass(cls);
+            const rawStatus = String($row.find('.status-badge').attr('data-status') || '');
+            const state = normalizeRuntimeState(rawStatus, rawStatus.toUpperCase() === 'ONLINE');
+            const item = { name, state, online: state === 'ONLINE' };
+            runtimeStates.set(name, item);
+            renderRuntimeState(item);
+        });
+    }
+
+    function findBotRow(botName) {
+        return $('.bot-row').filter(function () {
+            return String($(this).attr('data-name') || '') === botName;
+        });
+    }
+
+    function renderConnectButton($button, state) {
+        const pendingAction = runtimePendingActions.get(state.name) || '';
+        $button
+            .removeClass('btn-outline-success btn-outline-warning btn-outline-secondary')
+            .prop('disabled', false);
+
+        if (pendingAction === 'connect') {
+            $button.addClass('btn-outline-secondary').prop('disabled', true).text('连接中...');
+            return;
+        }
+        if (pendingAction === 'disconnect') {
+            $button.addClass('btn-outline-secondary').prop('disabled', true).text('断开中...');
+            return;
+        }
+        if (state.state === 'CONNECTING') {
+            $button.addClass('btn-outline-secondary').prop('disabled', true).text('连接中...');
+            return;
+        }
+        if (state.state === 'ONLINE') {
+            $button.addClass('btn-outline-warning').text('断开');
+            return;
+        }
+        $button.addClass('btn-outline-success').text('连接');
+    }
+
+    function renderRuntimeState(state) {
+        if (!state || !state.name) {
+            return;
+        }
+        const $row = findBotRow(state.name);
+        if (!$row.length) {
+            return;
+        }
+        const $badge = $row.find('.status-badge');
+        const $button = $row.find('.toggle-connect-btn');
+        if ($badge.length) {
+            applyStatusBadge($badge, state.state);
+        }
+        if ($button.length) {
+            renderConnectButton($button, state);
+        }
+    }
+
+    function normalizeRuntimePayload(item) {
+        const name = String(item?.name || '').trim();
+        const online = item?.online === true;
+        const normalizedState = normalizeRuntimeState(item?.state || item?.lifecycleStatus, online);
+        return {
+            name,
+            online: normalizedState === 'ONLINE',
+            state: normalizedState
+        };
+    }
+
+    function updateRuntimeState(item) {
+        const normalized = normalizeRuntimePayload(item);
+        if (!normalized.name) {
+            return;
+        }
+        runtimeStates.set(normalized.name, normalized);
+        renderRuntimeState(normalized);
+    }
+
+    function refreshRuntimeStates() {
+        if (runtimePolling) {
+            return;
+        }
+        // 轮询防重入，避免慢请求叠加导致状态闪烁。
+        runtimePolling = true;
+        $.getJSON('/internal/admin/bots/runtime')
+            .done((items) => {
+                if (!Array.isArray(items)) {
+                    return;
+                }
+                items.forEach(updateRuntimeState);
+            })
+            .always(() => {
+                runtimePolling = false;
+            });
+    }
+
+    function toggleBotConnection(button) {
+        const $button = $(button);
+        const botName = String($button.attr('data-name') || '').trim();
+        if (!botName || runtimePendingActions.has(botName)) {
+            return;
+        }
+        const current = runtimeStates.get(botName);
+        const action = current && current.state === 'ONLINE' ? 'disconnect' : 'connect';
+        // 先把按钮置为处理中，防止用户连续点击触发重复请求。
+        runtimePendingActions.set(botName, action);
+        renderRuntimeState(current || { name: botName, state: 'OFFLINE', online: false });
+
+        $.ajax({
+            url: `/internal/admin/bots/${encodeURIComponent(botName)}/${action}`,
+            method: 'POST'
+        }).done((data) => {
+            if (data && typeof data === 'object') {
+                updateRuntimeState(data);
+            } else {
+                refreshRuntimeStates();
+            }
+        }).fail((xhr) => {
+            const text = xhr?.responseText || `机器人${action === 'connect' ? '连接' : '断开'}失败`;
+            showAlert(text);
+        }).always(() => {
+            runtimePendingActions.delete(botName);
+            const latest = runtimeStates.get(botName);
+            renderRuntimeState(latest || { name: botName, state: 'OFFLINE', online: false });
+            refreshRuntimeStates();
         });
     }
 
@@ -577,6 +757,10 @@
             new bootstrap.Tooltip(this);
         });
         applyStatusBadges();
+        bootstrapRuntimeStatesFromDom();
+        $('.toggle-connect-btn').on('click', function () { toggleBotConnection(this); });
+        runtimePollTimer = window.setInterval(refreshRuntimeStates, RUNTIME_POLL_INTERVAL_MS);
+        refreshRuntimeStates();
 
         $('.edit-btn').on('click', function () { editBot(this); });
         $('.delete-btn').on('click', function () { requestDelete($(this).data('name')); });
@@ -584,7 +768,14 @@
         $('#resetBtn').on('click', resetForm);
         $('#newBotBtn').on('click', function () { resetForm(); focusForm(); });
         $form.on('submit', submitBot);
+
+        $(window).on('beforeunload', function () {
+            if (runtimePollTimer) {
+                window.clearInterval(runtimePollTimer);
+            }
+        });
     });
 </script>
 </body>
 </html>
+

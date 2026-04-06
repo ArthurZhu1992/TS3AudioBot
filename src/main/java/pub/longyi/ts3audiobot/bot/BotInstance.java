@@ -175,6 +175,20 @@ public final class BotInstance {
         return status;
     }
 
+    /**
+     * 返回当前是否已和 TS3 服务端建立连接。
+     */
+    public boolean isConnected() {
+        return client.isConnected();
+    }
+
+    /**
+     * 返回当前是否处于连接尝试流程中。
+     */
+    public boolean isConnectInProgress() {
+        return connectInProgress;
+    }
+
 
     /**
      * 执行 isPlaying 操作。
@@ -261,6 +275,11 @@ public final class BotInstance {
             return;
         }
         status = BotStatus.STARTING;
+        // 手动重连时重置退避状态，避免沿用上一次失败后的长等待窗口。
+        connectInProgress = false;
+        connectAttemptAt = 0L;
+        nextReconnectAt = 0L;
+        reconnectDelayMs = RECONNECT_BASE_MS;
         playbackPaused = false;
         trackDisplayActive = false;
         try {
@@ -302,6 +321,9 @@ public final class BotInstance {
         cancelTask(playbackTask);
         cancelTask(connectionTask);
         connectInProgress = false;
+        connectAttemptAt = 0L;
+        nextReconnectAt = 0L;
+        reconnectDelayMs = RECONNECT_BASE_MS;
         client.disconnect();
         status = BotStatus.STOPPED;
     }

@@ -3,7 +3,9 @@ package pub.longyi.ts3audiobot.web.internal;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import pub.longyi.ts3audiobot.bot.BotInstance;
 import pub.longyi.ts3audiobot.bot.BotManager;
+import pub.longyi.ts3audiobot.bot.BotStatus;
 import pub.longyi.ts3audiobot.config.AppConfig;
 import pub.longyi.ts3audiobot.config.ConfigService;
 import pub.longyi.ts3audiobot.config.SqliteConfigStore;
@@ -76,6 +78,54 @@ public final class AdminBotController {
     @GetMapping
     public List<AppConfig.BotConfig> list() {
         return configService.loadBots();
+    }
+
+    @GetMapping("/runtime")
+    public List<BotRuntimeState> runtime() {
+        // 仅用于页面轮询，直接读取存储层避免触发 identity 解析和额外日志。
+        List<AppConfig.BotConfig> configs = store.listBots();
+        if (configs == null || configs.isEmpty()) {
+            return List.of();
+        }
+        return configs.stream()
+            .map(config -> toRuntimeState(config.name, botManager.get(config.name)))
+            .toList();
+    }
+
+    @PostMapping("/{name}/connect")
+    public ResponseEntity<?> connect(@PathVariable String name) {
+        if (name == null || name.isBlank()) {
+            return ResponseEntity.badRequest().body("Bot name is required");
+        }
+        AppConfig.BotConfig config = store.getBot(name);
+        if (config == null) {
+            return ResponseEntity.notFound().build();
+        }
+        BotInstance instance = botManager.get(name);
+        if (instance == null) {
+            instance = botManager.upsertBot(config);
+        }
+        if (instance == null) {
+            return ResponseEntity.internalServerError().body("Bot instance unavailable");
+        }
+        instance.start();
+        return ResponseEntity.ok(toRuntimeState(name, instance));
+    }
+
+    @PostMapping("/{name}/disconnect")
+    public ResponseEntity<?> disconnect(@PathVariable String name) {
+        if (name == null || name.isBlank()) {
+            return ResponseEntity.badRequest().body("Bot name is required");
+        }
+        AppConfig.BotConfig config = store.getBot(name);
+        if (config == null) {
+            return ResponseEntity.notFound().build();
+        }
+        BotInstance instance = botManager.get(name);
+        if (instance != null) {
+            instance.stop();
+        }
+        return ResponseEntity.ok(toRuntimeState(name, botManager.get(name)));
     }
 
 
@@ -285,6 +335,31 @@ public final class AdminBotController {
         return trimmed.isBlank() ? fallback : trimmed;
     }
 
+    private BotRuntimeState toRuntimeState(String name, BotInstance instance) {
+        // 前端只关心在线态，保留 lifecycleStatus 便于排障与兼容旧状态展示。
+        String state = resolveRuntimeState(instance);
+        String lifecycleStatus = instance == null ? BotStatus.STOPPED.name() : instance.status().name();
+        boolean online = "ONLINE".equals(state);
+        return new BotRuntimeState(name, state, lifecycleStatus, online);
+    }
+
+    private String resolveRuntimeState(BotInstance instance) {
+        if (instance == null) {
+            return "OFFLINE";
+        }
+        if (instance.isConnected()) {
+            return "ONLINE";
+        }
+        BotStatus status = instance.status();
+        if (status == BotStatus.ERROR) {
+            return "ERROR";
+        }
+        if (status == BotStatus.STARTING || status == BotStatus.RUNNING || instance.isConnectInProgress()) {
+            return "CONNECTING";
+        }
+        return "OFFLINE";
+    }
+
     private int clampVolumePercent(int percent) {
         if (percent < 0) {
             return 100;
@@ -394,6 +469,20 @@ public final class AdminBotController {
         public String clientHwid;
         public String clientNicknamePhonetic;
         public String clientDefaultToken;
+    }
+
+    public static final class BotRuntimeState {
+        public final String name;
+        public final String state;
+        public final String lifecycleStatus;
+        public final boolean online;
+
+        public BotRuntimeState(String name, String state, String lifecycleStatus, boolean online) {
+            this.name = name;
+            this.state = state;
+            this.lifecycleStatus = lifecycleStatus;
+            this.online = online;
+        }
     }
 
     private static final class ProbeOutcome {

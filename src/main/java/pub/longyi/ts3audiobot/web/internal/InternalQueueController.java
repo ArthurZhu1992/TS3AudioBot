@@ -80,7 +80,7 @@ public final class InternalQueueController {
     @GetMapping("/{botId}")
     public List<QueueItem> list(@PathVariable String botId) {
         String playlistId = queueService.getActivePlaylist(botId);
-        return queueService.rawList(botId, playlistId);
+        return prepareQueueForDisplay(botId, playlistId, queueService.rawList(botId, playlistId));
     }
 
 
@@ -92,7 +92,7 @@ public final class InternalQueueController {
      */
     @GetMapping("/{botId}/{playlistId}")
     public List<QueueItem> listByPlaylist(@PathVariable String botId, @PathVariable String playlistId) {
-        return queueService.rawList(botId, playlistId);
+        return prepareQueueForDisplay(botId, playlistId, queueService.rawList(botId, playlistId));
     }
 
     @PostMapping("/{botId}/{playlistId}/items/{itemId}/refresh")
@@ -620,6 +620,17 @@ public final class InternalQueueController {
             );
         }
         return item;
+    }
+
+    private List<QueueItem> prepareQueueForDisplay(String botId, String playlistId, List<QueueItem> items) {
+        if (items == null || items.isEmpty()) {
+            return List.of();
+        }
+        List<QueueItem> prepared = new java.util.ArrayList<>(items.size());
+        for (QueueItem item : items) {
+            prepared.add(prepareQueueItemForDisplay(botId, playlistId, item));
+        }
+        return prepared;
     }
 
     private Track findTrack(String botId, String playlistId, String itemId) {

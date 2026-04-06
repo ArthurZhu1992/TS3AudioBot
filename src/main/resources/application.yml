@@ -38,6 +38,11 @@ ts3audiobot:
     cache-enabled: ${TS3AB_MEDIA_CACHE_ENABLED:true}
     audio-cache-enabled: ${TS3AB_MEDIA_AUDIO_CACHE_ENABLED:true}
     max-size-gb: ${TS3AB_MEDIA_MAX_SIZE_GB:20}
+    image:
+      enabled: ${TS3AB_MEDIA_IMAGE_ENABLED:true}
+      mode: ${TS3AB_MEDIA_IMAGE_MODE:hybrid}
+      thumb-size: ${TS3AB_MEDIA_IMAGE_THUMB_SIZE:120}
+      cover-size: ${TS3AB_MEDIA_IMAGE_COVER_SIZE:360}
 
   # Runtime web config mirrored into internal ConfigService.
   web:

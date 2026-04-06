@@ -150,25 +150,74 @@ class TrackMediaServiceCacheKeyTest {
 
         Track prepared = service.prepareForPlayback(track);
         assertEquals(audio.toAbsolutePath().normalize().toString(), prepared.streamUrl());
-        assertEquals("/internal/media/cover/track-1", prepared.coverUrl());
+        assertEquals("https://example.com/cover.jpg", prepared.coverUrl());
         assertTrue(service.findCoverFile(track.id()).isPresent());
 
         service.deleteTrackMedia(track);
         assertFalse(Files.exists(trackDir));
     }
 
+    @Test
+    void proxyModeUsesLocalProxyCoverUrl() throws Exception {
+        TrackMediaService service = newService(AppConfig.ImageMode.PROXY);
+        Track track = new Track(
+            "track-proxy",
+            "A",
+            "yt",
+            "https://music.youtube.com/watch?v=AAA111",
+            "https://example.com/stream.mp3",
+            0L,
+            "https://example.com/cover.jpg",
+            "",
+            null
+        );
+        Path trackDir = tempDir.resolve("track").resolve("track-proxy");
+        Files.createDirectories(trackDir);
+        Files.writeString(trackDir.resolve("cover.jpg"), "c");
+
+        Track prepared = service.prepareForDisplay(track);
+        assertEquals("/internal/media/cover/track-proxy?size=cover", prepared.coverUrl());
+    }
+
+    @Test
+    void directModeKeepsSourceCoverUrl() {
+        TrackMediaService service = newService(AppConfig.ImageMode.DIRECT);
+        Track track = new Track(
+            "track-direct",
+            "A",
+            "yt",
+            "https://music.youtube.com/watch?v=AAA111",
+            "https://example.com/stream.mp3",
+            0L,
+            "https://example.com/cover.jpg",
+            "",
+            null
+        );
+
+        Track prepared = service.prepareForDisplay(track);
+        assertEquals("https://example.com/cover.jpg", prepared.coverUrl());
+    }
+
     private TrackMediaService newService() {
-        return newService(null);
+        return newService(null, AppConfig.ImageMode.HYBRID);
+    }
+
+    private TrackMediaService newService(AppConfig.ImageMode imageMode) {
+        return newService(null, imageMode);
     }
 
     private TrackMediaService newService(SearchAuthService authService) {
+        return newService(authService, AppConfig.ImageMode.HYBRID);
+    }
+
+    private TrackMediaService newService(SearchAuthService authService, AppConfig.ImageMode imageMode) {
         ConfigService configService = mock(ConfigService.class);
         when(configService.get()).thenReturn(new AppConfig(
             new AppConfig.Configs("bots"),
             new AppConfig.Web(58913, List.of("*"), new AppConfig.WebApi(false), new AppConfig.WebInterface(true)),
             new AppConfig.Tools("ffmpeg"),
             new AppConfig.Search("test", 0),
-            new AppConfig.Media(true, true, 20, 720),
+            new AppConfig.Media(true, true, 20, 720, new AppConfig.Image(true, imageMode, 120, 360)),
             new AppConfig.Resolvers(new AppConfig.ExternalResolvers("yt-dlp", "yt-dlp", "netease-cloud-music", "qqmusic")),
             List.of()
         ));

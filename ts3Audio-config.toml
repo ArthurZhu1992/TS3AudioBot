@@ -33,3 +33,13 @@ cache_enabled = true
 audio_cache_enabled = true
 max_size_gb = 20
 cache_ttl_hours = 720
+
+[media.image]
+enabled = true
+# mode 可选值：
+# - "direct": 必须直链，仅使用源图片 URL，不走本地代理
+# - "hybrid": 优先直链（推荐），直链失败自动回退本地代理
+# - "proxy": 不直链，全部走本地代理与压缩图
+mode = "direct"
+thumb_size = 120
+cover_size = 360

@@ -729,6 +729,10 @@ public final class QueueService {
 
     private Track mergeTrack(Track existing, Track resolved) {
         String sourceId = firstNonBlank(existing.sourceId(), resolved.sourceId());
+        String coverUrl = firstNonBlank(existing.coverUrl(), resolved.coverUrl());
+        if (isInternalMediaCoverUrl(coverUrl) && !isBlank(resolved.coverUrl())) {
+            coverUrl = resolved.coverUrl();
+        }
         // Future resolver-supported fields should be merged here so lazy list loading
         // can continue repairing incomplete persisted items without adding a new flow.
         return new Track(
@@ -738,7 +742,7 @@ public final class QueueService {
             sourceId,
             firstNonBlank(existing.streamUrl(), resolved.streamUrl()),
             existing.durationMs() > 0 ? existing.durationMs() : Math.max(0, resolved.durationMs()),
-            firstNonBlank(existing.coverUrl(), resolved.coverUrl()),
+            coverUrl,
             firstNonBlank(existing.artist(), resolved.artist()),
             choosePlayCount(existing.playCount(), resolved.playCount())
         );
@@ -752,7 +756,18 @@ public final class QueueService {
             || isBlank(track.sourceType())
             || isBlank(track.streamUrl())
             || track.durationMs() <= 0
-            || isBlank(track.coverUrl());
+            || isBlank(track.coverUrl())
+            || isInternalMediaCoverUrl(track.coverUrl());
+    }
+
+    private boolean isInternalMediaCoverUrl(String value) {
+        if (isBlank(value)) {
+            return false;
+        }
+        String normalized = value.trim().toLowerCase();
+        return normalized.startsWith("/internal/media/cover/")
+            || normalized.contains("://127.0.0.1:58913/internal/media/cover/")
+            || normalized.contains("://localhost:58913/internal/media/cover/");
     }
 
     private boolean titleNeedsRepair(String title, String sourceId) {

@@ -7,6 +7,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import pub.longyi.ts3audiobot.media.TrackMediaService;
@@ -25,8 +26,14 @@ public final class InternalMediaController {
     }
 
     @GetMapping("/cover/{trackId}")
-    public ResponseEntity<Resource> cover(@PathVariable String trackId) {
-        Optional<Path> cover = trackMediaService.findCoverFile(trackId);
+    public ResponseEntity<Resource> cover(
+        @PathVariable String trackId,
+        @RequestParam(name = "size", required = false) String size
+    ) {
+        int maxEdge = trackMediaService.resolveImageSizeForAlias(size);
+        Optional<Path> cover = maxEdge > 0
+            ? trackMediaService.findCoverFile(trackId, maxEdge)
+            : trackMediaService.findCoverFile(trackId);
         if (cover.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
