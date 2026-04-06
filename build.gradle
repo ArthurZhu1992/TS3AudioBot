@@ -5,7 +5,7 @@ plugins {
 }
 
 group = 'pub.longyi'
-version = '0.0.1-SNAPSHOT'
+version = ''
 description = 'TS3AudioBot'
 
 java {
