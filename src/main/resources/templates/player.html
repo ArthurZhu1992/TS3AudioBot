@@ -446,6 +446,64 @@
             flex: 1 1 420px;
         }
 
+        .queue-manage-group {
+            padding: 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(15, 23, 42, 0.35);
+        }
+
+        .queue-manage-group + .queue-manage-group {
+            margin-top: 12px;
+        }
+
+        .queue-manage-title {
+            font-size: 0.82rem;
+            font-weight: 700;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+            color: rgba(226, 232, 240, 0.92);
+            margin-bottom: 8px;
+        }
+
+        .queue-current-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border-radius: 999px;
+            padding: 0.2rem 0.6rem;
+            font-size: 0.78rem;
+            color: #dbeafe;
+            border: 1px solid rgba(59, 130, 246, 0.35);
+            background: rgba(30, 64, 175, 0.2);
+        }
+
+        .queue-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .queue-danger-note {
+            margin-top: 8px;
+            font-size: 0.75rem;
+            color: rgba(251, 191, 36, 0.95);
+        }
+
+        .queue-add-btn {
+            min-width: 132px;
+        }
+
+        @media (max-width: 575px) {
+            .queue-actions {
+                grid-template-columns: 1fr;
+            }
+
+            .queue-add-btn {
+                min-width: 0;
+            }
+        }
+
         .mini-queue {
             max-height: clamp(220px, 38vh, 420px);
             overflow-y: auto;
@@ -695,33 +753,39 @@
             <div class="card shadow-sm mb-4">
                 <div class="card-header fw-semibold"><i class="fas fa-list-ol"></i> 队列管理</div>
                 <div class="card-body">
-                    <div class="mb-3">
-                        <label class="form-label" for="playlistSelect">播放列表</label>
-                        <select id="playlistSelect" class="form-select">
+                    <div class="queue-manage-group">
+                        <div class="queue-manage-title">播放列表切换</div>
+                        <label class="form-label mb-2" for="playlistSelect">播放列表</label>
+                        <select id="playlistSelect" class="form-select mb-2">
                             <option th:each="playlist : ${playlists}"
                                     th:value="${playlist}"
                                     th:selected="${playlist == playlistId}"
                                     th:text="${playlist}">default</option>
                         </select>
+                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2">
+                            <span id="playlist-current" class="queue-current-label">当前：default</span>
+                            <button id="load-queue" class="btn btn-warning btn-sm" type="button">切换歌单</button>
+                        </div>
                     </div>
 
-                    <div class="d-flex flex-wrap gap-2 mb-3">
-                        <button id="create-queue" class="btn btn-success" type="button">新建</button>
-                        <button id="delete-queue" class="btn btn-danger" type="button">删除</button>
-                        <button id="load-queue" class="btn btn-warning" type="button">查看</button>
+                    <div class="queue-manage-group">
+                        <div class="queue-manage-title">歌单维护</div>
+                        <label class="form-label mb-2" for="playlistName">新播放列表名称</label>
+                        <input type="text" id="playlistName" class="form-control mb-2" placeholder="输入新歌单名称" />
+                        <div class="queue-actions">
+                            <button id="create-queue" class="btn btn-success" type="button">新建歌单</button>
+                            <button id="delete-queue" class="btn btn-danger" type="button">删除当前歌单</button>
+                        </div>
+                        <div id="playlist-danger-hint" class="queue-danger-note">删除后不可恢复，请谨慎操作</div>
                     </div>
 
-                    <div class="mb-3">
-                        <label class="form-label" for="playlistName">新播放列表名称</label>
-                        <input type="text" id="playlistName" class="form-control" placeholder="输入播放列表名称" />
-                    </div>
-
-                    <div class="mb-3">
-                        <label class="form-label" for="song-url">添加歌曲 URL</label>
+                    <div class="queue-manage-group">
+                        <div class="queue-manage-title">歌曲入队</div>
+                        <label class="form-label mb-2" for="song-url">添加歌曲 URL</label>
                         <div class="input-group">
                             <input type="text" id="song-url" class="form-control" placeholder="输入歌曲 URL...">
-                            <button id="add-song" class="btn btn-success" type="button">
-                                <i class="fas fa-plus"></i>
+                            <button id="add-song" class="btn btn-success queue-add-btn" type="button">
+                                <i class="fas fa-plus me-1"></i> 添加到当前歌单
                             </button>
                         </div>
                     </div>
@@ -1167,9 +1231,63 @@
         return value && value.length ? value : 'default';
     }
 
+    function updatePlaylistSummary() {
+        const currentPlaylist = getPlaylistId();
+        $('#playlist-current').text(`当前：${currentPlaylist}`);
+        const isDefault = currentPlaylist === 'default';
+        $('#delete-queue').prop('disabled', isDefault).toggleClass('disabled', isDefault);
+        $('#playlist-danger-hint').text(isDefault ? '默认播放列表不可删除' : '删除后不可恢复，请谨慎操作');
+    }
+
     function persistPlaylist(botId, playlistId) {
         if (!botId || !playlistId) return;
         localStorage.setItem(PLAYLIST_KEY_PREFIX + botId, playlistId);
+    }
+
+    function updatePlayerUrl(botId, playlistId) {
+        if (!botId) return;
+        const params = new URLSearchParams(window.location.search);
+        params.set('botId', botId);
+        if (playlistId) {
+            params.set('playlistId', playlistId);
+        } else {
+            params.delete('playlistId');
+        }
+        const target = `/player?${params.toString()}`;
+        const current = `${window.location.pathname}${window.location.search}`;
+        if (current !== target) {
+            window.history.replaceState(null, '', target);
+        }
+    }
+
+    function refreshPlaylistOptions(botId, preferredPlaylist = '') {
+        if (!botId) {
+            return $.Deferred().reject().promise();
+        }
+        return $.getJSON(`/internal/queue/${botId}/playlists`).done((resp) => {
+            const entries = Array.isArray(resp && resp.playlists) ? resp.playlists : [];
+            const names = entries
+                .map((entry) => typeof entry?.name === 'string' ? entry.name.trim() : '')
+                .filter((name) => name.length > 0);
+            if (!names.includes('default')) {
+                names.unshift('default');
+            }
+            const serverActive = typeof resp?.active === 'string' && resp.active.trim()
+                ? resp.active.trim()
+                : 'default';
+            $playlistSelect.empty();
+            names.forEach((name) => {
+                $('<option>', { value: name, text: name }).appendTo($playlistSelect);
+            });
+            const targetPlaylist = preferredPlaylist && names.includes(preferredPlaylist)
+                ? preferredPlaylist
+                : (names.includes(serverActive) ? serverActive : names[0]);
+            $playlistSelect.val(targetPlaylist || 'default');
+            const selected = getPlaylistId();
+            persistPlaylist(botId, selected);
+            updatePlayerUrl(botId, selected);
+            updatePlaylistSummary();
+        });
     }
 
     function redirectToPlayer(botId, playlistId) {
@@ -1184,11 +1302,17 @@
         const botId = getBotId();
         const playlistId = getPlaylistId();
         if (!botId || !playlistId) return;
-        persistPlaylist(botId, playlistId);
         $.ajax({
             url: `/internal/queue/${botId}/playlists/${encodeURIComponent(playlistId)}/activate`,
             method: 'POST'
-        }).done(() => redirectToPlayer(botId, playlistId))
+        }).done(() => {
+            persistPlaylist(botId, playlistId);
+            updatePlayerUrl(botId, playlistId);
+            updatePlaylistSummary();
+            loadQueue({ refreshMissing: true, silent: true });
+            syncPlaybackState();
+            showNotification(`已切换到：${playlistId}`, 'success');
+        })
             .fail(() => showNotification('切换失败', 'error'));
     }
 
@@ -1202,12 +1326,23 @@
             contentType: 'application/json',
             data: JSON.stringify({ name })
         }).done(() => {
-            persistPlaylist(botId, name);
             $.ajax({
                 url: `/internal/queue/${botId}/playlists/${encodeURIComponent(name)}/activate`,
                 method: 'POST'
-            }).done(() => redirectToPlayer(botId, name));
-        }).fail(() => showNotification('创建失败', 'error'));
+            }).done(() => {
+                refreshPlaylistOptions(botId, name).done(() => {
+                    $('#playlistName').val('');
+                    loadQueue({ refreshMissing: true, silent: true });
+                    syncPlaybackState();
+                    showNotification(`已创建并切换到：${name}`, 'success');
+                }).fail(() => {
+                    showNotification('创建成功，但刷新播放列表失败，请手动刷新页面', 'warning');
+                });
+            }).fail(() => showNotification('激活新歌单失败', 'error'));
+        }).fail((resp) => {
+            const text = resp && resp.responseText ? resp.responseText : '创建失败';
+            showNotification(text, 'error');
+        });
     }
 
     function deletePlaylist() {
@@ -1218,13 +1353,27 @@
             showNotification('默认播放列表不可删除', 'warning');
             return;
         }
+        if (!window.confirm(`确认删除播放列表「${playlistId}」吗？`)) {
+            return;
+        }
+        if (!window.confirm('删除后不可恢复，确定继续删除吗？')) {
+            return;
+        }
         $.ajax({
             url: `/internal/queue/${botId}/playlists/${encodeURIComponent(playlistId)}`,
             method: 'DELETE'
         }).done(() => {
-            localStorage.removeItem(PLAYLIST_KEY_PREFIX + botId);
-            redirectToPlayer(botId);
-        }).fail(() => showNotification('删除失败', 'error'));
+            refreshPlaylistOptions(botId).done(() => {
+                loadQueue({ refreshMissing: true, silent: true });
+                syncPlaybackState();
+                showNotification(`已删除播放列表：${playlistId}`, 'success');
+            }).fail(() => {
+                showNotification('删除成功，但刷新播放列表失败，请手动刷新页面', 'warning');
+            });
+        }).fail((resp) => {
+            const text = resp && resp.responseText ? resp.responseText : '删除失败';
+            showNotification(text, 'error');
+        });
     }
 
     function addSong() {
@@ -2962,6 +3111,7 @@
                 return;
             }
         }
+        updatePlaylistSummary();
         $botSelect.on('change', () => {
             const selected = $botSelect.val();
             if (!selected) return;
@@ -2969,6 +3119,7 @@
             const storedPlaylist = localStorage.getItem(PLAYLIST_KEY_PREFIX + selected);
             redirectToPlayer(selected, storedPlaylist);
         });
+        $playlistSelect.on('change', updatePlaylistSummary);
 
         $('#create-queue').on('click', createPlaylist);
         $('#delete-queue').on('click', deletePlaylist);
