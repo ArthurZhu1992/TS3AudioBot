@@ -427,14 +427,19 @@ public final class InternalQueueController {
         if (item == null || track == null) {
             return track;
         }
-        String title = firstNonBlank(track.title(), item.title(), item.query());
+        // Prefer explicit metadata from search/import payload to avoid resolver-side
+        // mojibake/placeholder values replacing already-known title or artist.
+        String title = firstNonBlank(item.title(), track.title(), item.query());
         String sourceType = firstNonBlank(track.sourceType(), item.source());
         String sourceId = firstNonBlank(track.sourceId(), item.query());
         String streamUrl = firstNonBlank(track.streamUrl(), item.query());
-        long durationMs = track.durationMs() > 0L ? track.durationMs() : safeDuration(item.durationMs());
-        String coverUrl = firstNonBlank(track.coverUrl(), item.coverUrl());
-        String artist = firstNonBlank(track.artist(), item.artist());
-        Long playCount = track.playCount() != null && track.playCount() > 0L ? track.playCount() : safePlayCount(item.playCount());
+        long itemDuration = safeDuration(item.durationMs());
+        long durationMs = itemDuration > 0L ? itemDuration : Math.max(0L, track.durationMs());
+        String coverUrl = firstNonBlank(item.coverUrl(), track.coverUrl());
+        String artist = firstNonBlank(item.artist(), track.artist());
+        Long itemPlayCount = safePlayCount(item.playCount());
+        Long playCount = itemPlayCount != null ? itemPlayCount
+            : (track.playCount() != null && track.playCount() > 0L ? track.playCount() : null);
         return new Track(
             track.id(),
             title,
