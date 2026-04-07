@@ -219,6 +219,7 @@ public final class AppConfig {
         public final boolean audioCacheEnabled;
         public final int maxSizeGb;
         public final int cacheTtlHours;
+        public final boolean avatarEnabled;
         public final Image image;
 
         /**
@@ -229,14 +230,26 @@ public final class AppConfig {
          * @param cacheTtlHours 参数 cacheTtlHours
          */
         public Media(boolean cacheEnabled, boolean audioCacheEnabled, int maxSizeGb, int cacheTtlHours) {
-            this(cacheEnabled, audioCacheEnabled, maxSizeGb, cacheTtlHours, new Image(true, ImageMode.HYBRID, 120, 360));
+            this(cacheEnabled, audioCacheEnabled, maxSizeGb, cacheTtlHours, true, new Image(true, ImageMode.HYBRID, 120, 360));
         }
 
         public Media(boolean cacheEnabled, boolean audioCacheEnabled, int maxSizeGb, int cacheTtlHours, Image image) {
+            this(cacheEnabled, audioCacheEnabled, maxSizeGb, cacheTtlHours, true, image);
+        }
+
+        public Media(
+            boolean cacheEnabled,
+            boolean audioCacheEnabled,
+            int maxSizeGb,
+            int cacheTtlHours,
+            boolean avatarEnabled,
+            Image image
+        ) {
             this.cacheEnabled = cacheEnabled;
             this.audioCacheEnabled = audioCacheEnabled;
             this.maxSizeGb = maxSizeGb;
             this.cacheTtlHours = cacheTtlHours;
+            this.avatarEnabled = avatarEnabled;
             this.image = image == null ? new Image(true, ImageMode.HYBRID, 120, 360) : image;
         }
     }

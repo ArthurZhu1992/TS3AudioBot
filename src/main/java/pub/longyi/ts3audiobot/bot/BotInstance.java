@@ -46,6 +46,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public final class BotInstance {
     private final String id;
     private final AppConfig.BotConfig config;
+    private final boolean avatarSyncEnabled;
     private final Ts3VoiceClient client;
     private final AudioEngine audioEngine;
     private final TrackMediaService trackMediaService;
@@ -101,6 +102,7 @@ public final class BotInstance {
     public BotInstance(
         String id,
         AppConfig.BotConfig config,
+        boolean avatarSyncEnabled,
         Ts3VoiceClient client,
         AudioEngine audioEngine,
         TrackMediaService trackMediaService,
@@ -109,6 +111,7 @@ public final class BotInstance {
     ) {
         this.id = id;
         this.config = config;
+        this.avatarSyncEnabled = avatarSyncEnabled;
         this.client = client;
         this.audioEngine = audioEngine;
         this.trackMediaService = trackMediaService;
@@ -648,6 +651,11 @@ public final class BotInstance {
             log.warn("Bot {} profile nickname update failed revision={} nickname={}", id, revision, targetNickname);
         } else {
             log.info("Bot {} profile nickname unchanged revision={} nickname={}", id, revision, targetNickname);
+        }
+        // 头像同步允许单独关闭；关闭后仅保留昵称同步，避免触发文件传输链路问题。
+        if (!avatarSyncEnabled) {
+            log.info("Bot {} skip avatar update revision={} reason=avatar_sync_disabled", id, revision);
+            return;
         }
         if (!nowPlaying || track == null || track.id() == null || track.id().isBlank()) {
             log.info("Bot {} skip avatar update revision={} reason=no_playing_track", id, revision);

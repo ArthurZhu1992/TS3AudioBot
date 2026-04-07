@@ -94,6 +94,7 @@ public final class BotManager {
         BotInstance instance = new BotInstance(
             id,
             botConfig,
+            resolveAvatarSyncEnabled(),
             voiceClient,
             new FfmpegAudioEngine(configService, voiceClient),
             trackMediaService,
@@ -185,6 +186,14 @@ public final class BotManager {
     public BotInstance get(String id) {
 
         return bots.get(id);
+    }
+
+    private boolean resolveAvatarSyncEnabled() {
+        AppConfig appConfig = configService.get();
+        if (appConfig == null || appConfig.media == null) {
+            return true;
+        }
+        return appConfig.media.avatarEnabled;
     }
 
 

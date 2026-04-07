@@ -58,6 +58,7 @@ public final class ConfigService {
     private static final boolean DEFAULT_MEDIA_AUDIO_CACHE_ENABLED = true;
     private static final int DEFAULT_MEDIA_MAX_SIZE_GB = 20;
     private static final int DEFAULT_MEDIA_CACHE_TTL_HOURS = 24 * 30;
+    private static final boolean DEFAULT_MEDIA_AVATAR_ENABLED = true;
     private static final boolean DEFAULT_MEDIA_IMAGE_ENABLED = true;
     private static final AppConfig.ImageMode DEFAULT_MEDIA_IMAGE_MODE = AppConfig.ImageMode.HYBRID;
     private static final int DEFAULT_MEDIA_IMAGE_THUMB_SIZE = 120;
@@ -90,6 +91,7 @@ public final class ConfigService {
     private static final String KEY_MEDIA_AUDIO_CACHE_ENABLED = "media.audio_cache_enabled";
     private static final String KEY_MEDIA_MAX_SIZE_GB = "media.max_size_gb";
     private static final String KEY_MEDIA_CACHE_TTL_HOURS = "media.cache_ttl_hours";
+    private static final String KEY_MEDIA_AVATAR_ENABLED = "media.avatar.enabled";
     private static final String KEY_MEDIA_IMAGE_ENABLED = "media.image.enabled";
     private static final String KEY_MEDIA_IMAGE_MODE = "media.image.mode";
     private static final String KEY_MEDIA_IMAGE_THUMB_SIZE = "media.image.thumb_size";
@@ -242,6 +244,7 @@ public final class ConfigService {
                 resolved.mediaAudioCacheEnabled,
                 resolved.mediaMaxSizeGb,
                 resolved.mediaCacheTtlHours,
+                resolved.mediaAvatarEnabled,
                 new AppConfig.Image(
                     resolved.mediaImageEnabled,
                     resolved.mediaImageMode,
@@ -280,6 +283,11 @@ public final class ConfigService {
             KEY_MEDIA_CACHE_TTL_HOURS,
             DEFAULT_MEDIA_CACHE_TTL_HOURS
         ));
+        boolean mediaAvatarEnabled = parseBooleanSetting(
+            settings,
+            KEY_MEDIA_AVATAR_ENABLED,
+            DEFAULT_MEDIA_AVATAR_ENABLED
+        );
         boolean mediaImageEnabled = parseBooleanSetting(settings, KEY_MEDIA_IMAGE_ENABLED, DEFAULT_MEDIA_IMAGE_ENABLED);
         AppConfig.ImageMode mediaImageMode = parseMediaImageModeSetting(
             settings,
@@ -325,6 +333,7 @@ public final class ConfigService {
             mediaAudioCacheEnabled,
             mediaMaxSizeGb,
             mediaCacheTtlHours,
+            mediaAvatarEnabled,
             mediaImageEnabled,
             mediaImageMode,
             mediaImageThumbSize,
@@ -507,6 +516,7 @@ public final class ConfigService {
             if (mediaCacheTtlHours != null) {
                 settings.put(KEY_MEDIA_CACHE_TTL_HOURS, Long.toString(mediaCacheTtlHours));
             }
+            putIfNotBlank(settings, KEY_MEDIA_AVATAR_ENABLED, toBooleanString(toml.getBoolean("media.avatar.enabled")));
             putIfNotBlank(settings, KEY_MEDIA_IMAGE_ENABLED, toBooleanString(toml.getBoolean("media.image.enabled")));
             putIfNotBlank(settings, KEY_MEDIA_IMAGE_MODE, toml.getString("media.image.mode"));
             Long mediaImageThumbSize = toml.getLong("media.image.thumb_size");
@@ -559,6 +569,7 @@ public final class ConfigService {
         putSpring(settings, KEY_MEDIA_AUDIO_CACHE_ENABLED, environment, "ts3audiobot.media.audio-cache-enabled");
         putSpring(settings, KEY_MEDIA_MAX_SIZE_GB, environment, "ts3audiobot.media.max-size-gb");
         putSpring(settings, KEY_MEDIA_CACHE_TTL_HOURS, environment, "ts3audiobot.media.cache-ttl-hours");
+        putSpring(settings, KEY_MEDIA_AVATAR_ENABLED, environment, "ts3audiobot.media.avatar.enabled");
         putSpring(settings, KEY_MEDIA_IMAGE_ENABLED, environment, "ts3audiobot.media.image.enabled");
         putSpring(settings, KEY_MEDIA_IMAGE_MODE, environment, "ts3audiobot.media.image.mode");
         putSpring(settings, KEY_MEDIA_IMAGE_THUMB_SIZE, environment, "ts3audiobot.media.image.thumb-size");
@@ -984,6 +995,7 @@ public final class ConfigService {
         boolean mediaAudioCacheEnabled,
         int mediaMaxSizeGb,
         int mediaCacheTtlHours,
+        boolean mediaAvatarEnabled,
         boolean mediaImageEnabled,
         AppConfig.ImageMode mediaImageMode,
         int mediaImageThumbSize,

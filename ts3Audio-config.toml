@@ -34,6 +34,11 @@ audio_cache_enabled = true
 max_size_gb = 20
 cache_ttl_hours = 720
 
+[media.avatar]
+# 是否启用 TS3 头像自动同步（根据当前播放封面上传头像）
+# 设为 false 可只更新昵称，不再触发头像上传与文件传输
+enabled = false
+
 [media.image]
 enabled = true
 # mode 可选值：
