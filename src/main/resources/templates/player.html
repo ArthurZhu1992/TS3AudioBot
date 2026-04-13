@@ -1154,6 +1154,8 @@
         artist: '',
         sourceType: '',
         playCount: null,
+        mode: 'order',
+        activePlaylistId: '',
         coverUrl: '',
         playlistId: '',
         itemId: '',
@@ -1232,9 +1234,14 @@
     }
 
     function updatePlaylistSummary() {
-        const currentPlaylist = getPlaylistId();
-        $('#playlist-current').text(`当前：${currentPlaylist}`);
-        const isDefault = currentPlaylist === 'default';
+        const selectedPlaylist = getPlaylistId();
+        const activePlaylist = (playbackState && playbackState.activePlaylistId) ? playbackState.activePlaylistId : selectedPlaylist;
+        if (activePlaylist && activePlaylist !== selectedPlaylist) {
+            $('#playlist-current').text(`当前选择：${selectedPlaylist}（实际激活：${activePlaylist}）`);
+        } else {
+            $('#playlist-current').text(`当前：${selectedPlaylist}`);
+        }
+        const isDefault = selectedPlaylist === 'default';
         $('#delete-queue').prop('disabled', isDefault).toggleClass('disabled', isDefault);
         $('#playlist-danger-hint').text(isDefault ? '默认播放列表不可删除' : '删除后不可恢复，请谨慎操作');
     }
@@ -2959,6 +2966,8 @@
                     artist: data.artist || '',
                     sourceType: data.sourceType || '',
                     playCount: Number.isFinite(Number(data.playCount)) && Number(data.playCount) > 0 ? Math.round(Number(data.playCount)) : null,
+                    mode: data.mode || playbackState.mode || 'order',
+                    activePlaylistId: data.activePlaylistId || '',
                     coverUrl: data.coverUrl || '',
                     playlistId: data.playlistId || '',
                     itemId: data.itemId || '',
@@ -2985,8 +2994,10 @@
                 }
                 updatePlayPauseButton(playbackState.playing);
                 updateStatusText(playbackState);
+                applyMode(playbackState.mode, false);
                 updateNowPlayingMeta(playbackState);
                 updateQueueHighlight(playbackState);
+                updatePlaylistSummary();
                 updateProgressFromState();
                 if (!volumeDragging) {
                     updateVolumeDisplay(playbackState.volumePercent);

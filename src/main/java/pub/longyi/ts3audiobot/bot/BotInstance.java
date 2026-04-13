@@ -7,6 +7,7 @@ import pub.longyi.ts3audiobot.media.TrackMediaService;
 import pub.longyi.ts3audiobot.queue.QueueService;
 import pub.longyi.ts3audiobot.queue.QueueItem;
 import pub.longyi.ts3audiobot.queue.Track;
+import pub.longyi.ts3audiobot.shuffle.ShufflePlaybackService;
 import pub.longyi.ts3audiobot.ts3.Ts3VoiceClient;
 import pub.longyi.ts3audiobot.ts3.full.ConnectionDataFull;
 import pub.longyi.ts3audiobot.ts3.full.Password;
@@ -15,6 +16,7 @@ import pub.longyi.ts3audiobot.ts3.full.TsVersionSigned;
 import pub.longyi.ts3audiobot.ts3.full.IdentityData;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
@@ -51,6 +53,7 @@ public final class BotInstance {
     private final AudioEngine audioEngine;
     private final TrackMediaService trackMediaService;
     private final QueueService queueService;
+    private final ShufflePlaybackService shufflePlaybackService;
     private final ScheduledExecutorService scheduler;
     private final java.util.Random random = new java.util.Random();
     private final ExecutorService profileExecutor;
@@ -107,6 +110,7 @@ public final class BotInstance {
         AudioEngine audioEngine,
         TrackMediaService trackMediaService,
         QueueService queueService,
+        ShufflePlaybackService shufflePlaybackService,
         ScheduledExecutorService scheduler
     ) {
         this.id = id;
@@ -116,6 +120,7 @@ public final class BotInstance {
         this.audioEngine = audioEngine;
         this.trackMediaService = trackMediaService;
         this.queueService = queueService;
+        this.shufflePlaybackService = shufflePlaybackService;
         this.scheduler = scheduler;
         this.baseBotName = resolveBaseBotName(config, id);
         this.profileExecutor = Executors.newSingleThreadExecutor(runnable -> {
@@ -161,11 +166,14 @@ public final class BotInstance {
      * 执行 setPlaybackMode 操作。
      * @param playbackMode 参数 playbackMode
      */
-    public void setPlaybackMode(PlaybackMode playbackMode) {
-        if (playbackMode == null) {
-            this.playbackMode = PlaybackMode.ORDER;
-        } else {
-            this.playbackMode = playbackMode;
+    public synchronized void setPlaybackMode(PlaybackMode playbackMode) {
+        PlaybackMode resolved = playbackMode == null ? PlaybackMode.ORDER : playbackMode;
+        PlaybackMode previous = this.playbackMode;
+        this.playbackMode = resolved;
+        if (resolved == PlaybackMode.RANDOM && previous != PlaybackMode.RANDOM) {
+            String playlistId = queueService.getActivePlaylist(id);
+            List<QueueItem> queue = queueService.rawList(id, playlistId);
+            shufflePlaybackService.rebuild(id, playlistId, queue, random, currentItemId);
         }
     }
 
@@ -397,6 +405,27 @@ public final class BotInstance {
         playNext(queueService.getActivePlaylist(id), true);
     }
 
+    /**
+     * 随机模式下按随机序列回退；非随机模式维持原有上一首语义。
+     */
+    public synchronized void playPrevious() {
+        String playlistId = queueService.getActivePlaylist(id);
+        if (playbackMode != PlaybackMode.RANDOM) {
+            queueService.stepBack(id, playlistId);
+            playNext(playlistId, true);
+            return;
+        }
+        List<QueueItem> queue = queueService.rawList(id, playlistId);
+        QueueItem resolved = shufflePlaybackService.previous(id, playlistId, queue, random, currentItemId);
+        if (resolved == null) {
+            if (currentTrack != null) {
+                seekPlayback(0L);
+            }
+            return;
+        }
+        startPlaybackFromQueueItem(playlistId, resolved, true);
+    }
+
     public synchronized boolean handleRemovedQueueItem(String playlistId, String itemId) {
         if (!Objects.equals(currentItemId, itemId) || !Objects.equals(currentPlaylistId, playlistId)) {
             return false;
@@ -410,7 +439,7 @@ public final class BotInstance {
         currentPlaylistId = null;
         trackDisplayActive = false;
         if (shouldContinue) {
-            playNext(playlistId, true);
+            playNext(playlistId, playbackMode != PlaybackMode.RANDOM);
         } else {
             scheduleClientProfileSync();
         }
@@ -424,7 +453,10 @@ public final class BotInstance {
         }
         PlaybackMode mode = forceOrder ? PlaybackMode.ORDER : playbackMode;
         QueueItem resolved = switch (mode) {
-            case RANDOM -> queueService.nextRandom(id, resolvedPlaylistId, random);
+            case RANDOM -> {
+                List<QueueItem> queue = queueService.rawList(id, resolvedPlaylistId);
+                yield shufflePlaybackService.next(id, resolvedPlaylistId, queue, random, currentItemId);
+            }
             case LOOP -> queueService.nextLoop(id, resolvedPlaylistId);
             case LIST_LOOP -> queueService.nextListLoop(id, resolvedPlaylistId);
             default -> queueService.next(id, resolvedPlaylistId);
@@ -437,15 +469,7 @@ public final class BotInstance {
             }
             return;
         }
-        playbackPaused = false;
-        trackDisplayActive = true;
-        currentItemId = resolved.id();
-        currentPlaylistId = resolvedPlaylistId;
-        currentTrack = prepareTrackForPlayback(resolvedPlaylistId, resolved.id(), resolved.track());
-        playbackPositionMs = 0L;
-        playbackStartedAt = System.currentTimeMillis();
-        audioEngine.play(currentTrack);
-        scheduleClientProfileSync();
+        startPlaybackFromQueueItem(resolvedPlaylistId, resolved, mode == PlaybackMode.RANDOM);
     }
 
 
@@ -606,6 +630,26 @@ public final class BotInstance {
             queueService.updateTrack(id, playlistId, itemId, prepared);
         }
         return prepared;
+    }
+
+    private void startPlaybackFromQueueItem(String playlistId, QueueItem item, boolean syncQueueCursor) {
+        if (item == null) {
+            return;
+        }
+        playbackPaused = false;
+        trackDisplayActive = true;
+        currentItemId = item.id();
+        currentPlaylistId = playlistId;
+        currentTrack = prepareTrackForPlayback(playlistId, item.id(), item.track());
+        playbackPositionMs = 0L;
+        playbackStartedAt = System.currentTimeMillis();
+        audioEngine.play(currentTrack);
+        if (syncQueueCursor) {
+            // 随机模式由独立状态机选歌，需要额外同步队列游标，保证前端 currentIndex 一致。
+            queueService.jumpTo(id, playlistId, item.id());
+            queueService.next(id, playlistId);
+        }
+        scheduleClientProfileSync();
     }
 
     private void scheduleClientProfileSync() {

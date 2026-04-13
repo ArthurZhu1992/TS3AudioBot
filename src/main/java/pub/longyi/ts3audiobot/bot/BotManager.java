@@ -6,6 +6,7 @@ import pub.longyi.ts3audiobot.config.AppConfig;
 import pub.longyi.ts3audiobot.config.ConfigService;
 import pub.longyi.ts3audiobot.media.TrackMediaService;
 import pub.longyi.ts3audiobot.queue.QueueService;
+import pub.longyi.ts3audiobot.shuffle.ShufflePlaybackService;
 import pub.longyi.ts3audiobot.ts3.Ts3ClientFactory;
 import pub.longyi.ts3audiobot.util.IdGenerator;
 
@@ -42,6 +43,7 @@ public final class BotManager {
     private final Ts3ClientFactory ts3ClientFactory;
     private final QueueService queueService;
     private final TrackMediaService trackMediaService;
+    private final ShufflePlaybackService shufflePlaybackService;
 
     /**
      * 创建 BotManager 实例。
@@ -53,12 +55,14 @@ public final class BotManager {
         ConfigService configService,
         Ts3ClientFactory ts3ClientFactory,
         QueueService queueService,
-        TrackMediaService trackMediaService
+        TrackMediaService trackMediaService,
+        ShufflePlaybackService shufflePlaybackService
     ) {
         this.configService = configService;
         this.ts3ClientFactory = ts3ClientFactory;
         this.queueService = queueService;
         this.trackMediaService = trackMediaService;
+        this.shufflePlaybackService = shufflePlaybackService;
     }
 
 
@@ -99,6 +103,7 @@ public final class BotManager {
             new FfmpegAudioEngine(configService, voiceClient),
             trackMediaService,
             queueService,
+            shufflePlaybackService,
             scheduler
         );
         bots.put(id, instance);

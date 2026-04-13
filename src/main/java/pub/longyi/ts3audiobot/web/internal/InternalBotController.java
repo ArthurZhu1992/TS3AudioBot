@@ -110,7 +110,11 @@ public final class InternalBotController {
         if (bot == null) {
             return ResponseEntity.notFound().build();
         }
-        bot.playNextForced();
+        if (bot.playbackMode() == PlaybackMode.RANDOM) {
+            bot.playNext();
+        } else {
+            bot.playNextForced();
+        }
         return ResponseEntity.ok().build();
     }
 
@@ -125,6 +129,10 @@ public final class InternalBotController {
         BotInstance bot = botManager.get(botId);
         if (bot == null) {
             return ResponseEntity.notFound().build();
+        }
+        if (bot.playbackMode() == PlaybackMode.RANDOM) {
+            bot.playPrevious();
+            return ResponseEntity.ok().build();
         }
         queueService.stepBack(botId);
         bot.playNextForced();
@@ -198,6 +206,7 @@ public final class InternalBotController {
         Track track = bot.currentTrack();
         String currentPlaylist = bot.currentPlaylistId();
         String currentItemId = bot.currentItemId();
+        String activePlaylist = queueService.getActivePlaylist(botId);
         return ResponseEntity.ok(new PlaybackState(
             bot.status().name(),
             bot.isPlaying(),
@@ -211,6 +220,8 @@ public final class InternalBotController {
             track == null ? "" : track.sourceType(),
             track == null ? "" : track.coverUrl(),
             track == null ? null : track.playCount(),
+            bot.playbackMode().name().toLowerCase(),
+            activePlaylist == null ? "" : activePlaylist,
             currentPlaylist == null ? "" : currentPlaylist,
             currentItemId == null ? "" : currentItemId
         ));
@@ -308,6 +319,8 @@ public final class InternalBotController {
         String sourceType,
         String coverUrl,
         Long playCount,
+        String mode,
+        String activePlaylistId,
         String playlistId,
         String itemId
     ) {
