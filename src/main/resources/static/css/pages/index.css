@@ -1,0 +1,220 @@
+:root {
+            --primary: #4361ee;
+            --secondary: #3a0ca3;
+            --accent: #4cc9f0;
+            --success: #4ade80;
+            --danger: #f72585;
+            --warning: #f8961e;
+            --dark: #0f172a;
+            --dark-2: #1e293b;
+            --light: #f8fafc;
+            --muted: #94a3b8;
+            --card: rgba(30, 41, 59, 0.85);
+            --border: rgba(255, 255, 255, 0.08);
+            --shadow: 0 12px 28px rgba(0, 0, 0, 0.25);
+        }
+
+        body.theme-dark {
+            background: linear-gradient(135deg, var(--dark) 0%, var(--dark-2) 100%);
+            color: var(--light);
+            min-height: 100vh;
+            font-family: "Manrope", "Microsoft YaHei", "PingFang SC", sans-serif;
+        }
+
+        .navbar {
+            background: rgba(15, 23, 42, 0.95) !important;
+            border-bottom: 1px solid var(--border);
+            backdrop-filter: blur(12px);
+        }
+
+        .navbar .nav-link {
+            color: var(--muted);
+            font-weight: 600;
+        }
+
+        .navbar .nav-link.active,
+        .navbar .nav-link:hover {
+            color: var(--accent);
+        }
+
+        .page-title {
+            background: linear-gradient(to right, var(--accent), var(--primary));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow);
+        }
+
+        .card-header {
+            background: rgba(15, 23, 42, 0.6);
+            border-bottom: 1px solid var(--border);
+            color: var(--light);
+        }
+
+        .table {
+            color: var(--light);
+            --bs-table-bg: rgba(15, 23, 42, 0.6);
+            --bs-table-color: var(--light);
+            --bs-table-hover-bg: rgba(67, 97, 238, 0.18);
+            --bs-table-hover-color: var(--light);
+        }
+
+        .table > :not(caption) > * > * {
+            border-color: rgba(255, 255, 255, 0.08);
+            background-color: var(--bs-table-bg);
+        }
+
+        .table-light {
+            --bs-table-bg: rgba(15, 23, 42, 0.6);
+            --bs-table-color: var(--muted);
+        }
+
+        .table-hover tbody tr:hover > * {
+            background-color: rgba(67, 97, 238, 0.18);
+        }
+
+        .form-label {
+            color: var(--muted);
+            font-weight: 600;
+        }
+
+        .form-control,
+        .form-select {
+            background: rgba(15, 23, 42, 0.8);
+            color: var(--light);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+        }
+
+        .form-control::placeholder {
+            color: rgba(148, 163, 184, 0.85);
+        }
+
+        .form-control:focus,
+        .form-select:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 0.2rem rgba(67, 97, 238, 0.25);
+            background: rgba(15, 23, 42, 0.9);
+            color: var(--light);
+        }
+
+        .btn-primary {
+            border: none;
+            background: linear-gradient(to right, var(--primary), var(--secondary));
+        }
+
+        .btn-primary:hover {
+            opacity: 0.92;
+        }
+
+        .btn-danger {
+            border: none;
+            background: linear-gradient(to right, var(--danger), #b5179e);
+        }
+
+        .btn-outline-primary {
+            color: var(--accent);
+            border-color: rgba(76, 201, 240, 0.6);
+        }
+
+        .btn-outline-primary:hover {
+            background: rgba(76, 201, 240, 0.12);
+            color: var(--accent);
+        }
+
+        .btn-outline-secondary,
+        .btn-outline-light {
+            color: var(--light);
+            border-color: rgba(255, 255, 255, 0.25);
+        }
+
+        .btn-outline-secondary:hover,
+        .btn-outline-light:hover {
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .btn-outline-danger {
+            color: var(--danger);
+            border-color: rgba(247, 37, 133, 0.6);
+        }
+
+        .btn-outline-danger:hover {
+            background: rgba(247, 37, 133, 0.1);
+            color: var(--danger);
+        }
+
+        .toggle-connect-btn {
+            min-width: 72px;
+        }
+
+        .text-muted {
+            color: var(--muted) !important;
+        }
+
+        .status-badge.text-bg-success {
+            background: rgba(74, 222, 128, 0.2) !important;
+            color: var(--success) !important;
+            border: 1px solid rgba(74, 222, 128, 0.35);
+        }
+
+        .status-badge.text-bg-warning {
+            background: rgba(248, 150, 30, 0.2) !important;
+            color: var(--warning) !important;
+            border: 1px solid rgba(248, 150, 30, 0.35);
+        }
+
+        .status-badge.text-bg-danger {
+            background: rgba(247, 37, 133, 0.18) !important;
+            color: var(--danger) !important;
+            border: 1px solid rgba(247, 37, 133, 0.35);
+        }
+
+        .status-badge.text-bg-secondary {
+            background: rgba(67, 97, 238, 0.2) !important;
+            color: var(--accent) !important;
+            border: 1px solid rgba(76, 201, 240, 0.3);
+        }
+
+        .accordion-item {
+            background: rgba(15, 23, 42, 0.7);
+            border: 1px solid var(--border);
+        }
+
+        .accordion-button {
+            background: rgba(15, 23, 42, 0.7);
+            color: var(--light);
+        }
+
+        .accordion-button:focus {
+            box-shadow: 0 0 0 0.2rem rgba(67, 97, 238, 0.25);
+        }
+
+        .accordion-button:not(.collapsed) {
+            color: var(--accent);
+            background: rgba(67, 97, 238, 0.18);
+        }
+
+        .modal-content {
+            background: #1e293b;
+            color: var(--light);
+            border: 1px solid var(--border);
+        }
+
+        .modal-header,
+        .modal-footer {
+            border-color: var(--border);
+        }
+
+        .alert-danger {
+            background: rgba(247, 37, 133, 0.15);
+            color: var(--danger);
+            border: 1px solid rgba(247, 37, 133, 0.35);
+        }
+
+        footer {
+            color: var(--muted);
+        }

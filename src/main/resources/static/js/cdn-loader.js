@@ -7,23 +7,23 @@
 
     const DEPENDENCIES = {
         bootstrapCss: {
-            mainland: 'https://cdn.staticfile.net/twitter-bootstrap/5.3.3/css/bootstrap.min.css',
+            mainland: 'https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.3/css/bootstrap.min.css',
             global: 'https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css'
         },
         jquery: {
-            mainland: 'https://cdn.staticfile.net/jquery/3.7.1/jquery.min.js',
+            mainland: 'https://cdn.bootcdn.net/ajax/libs/jquery/3.7.1/jquery.min.js',
             global: 'https://code.jquery.com/jquery-3.7.1.min.js'
         },
         bootstrapJs: {
-            mainland: 'https://cdn.staticfile.net/twitter-bootstrap/5.3.3/js/bootstrap.bundle.min.js',
+            mainland: 'https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.3/js/bootstrap.bundle.min.js',
             global: 'https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js'
         },
         fontAwesomeCss: {
-            mainland: 'https://cdn.staticfile.net/font-awesome/6.4.0/css/all.min.css',
+            mainland: 'https://cdn.bootcdn.net/ajax/libs/font-awesome/6.4.0/css/all.min.css',
             global: 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css'
         },
         qrious: {
-            mainland: 'https://cdn.staticfile.net/qrious/4.0.2/qrious.min.js',
+            mainland: 'https://cdn.bootcdn.net/ajax/libs/qrious/4.0.2/qrious.min.js',
             global: 'https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js'
         }
     };
