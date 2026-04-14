@@ -198,6 +198,66 @@ class TrackMediaServiceCacheKeyTest {
         assertEquals("https://example.com/cover.jpg", prepared.coverUrl());
     }
 
+    @Test
+    void shouldNotPersistManagedCacheStreamUrlOnlyChange() {
+        TrackMediaService service = newService();
+        String trackId = "track-cache-persist";
+        Track original = new Track(
+            trackId,
+            "A",
+            "yt",
+            "https://music.youtube.com/watch?v=AAA111",
+            "https://example.com/stream.mp3",
+            0L,
+            "https://example.com/cover.jpg",
+            "",
+            null
+        );
+        Track prepared = new Track(
+            trackId,
+            original.title(),
+            original.sourceType(),
+            original.sourceId(),
+            tempDir.resolve("track").resolve(trackId).resolve("audio.mp3").toString(),
+            original.durationMs(),
+            original.coverUrl(),
+            original.artist(),
+            original.playCount()
+        );
+
+        assertFalse(service.shouldPersistPreparedTrack(original, prepared));
+    }
+
+    @Test
+    void shouldPersistWhenCoverChangesEvenIfStreamBecomesManagedCachePath() {
+        TrackMediaService service = newService();
+        String trackId = "track-cover-change";
+        Track original = new Track(
+            trackId,
+            "A",
+            "yt",
+            "https://music.youtube.com/watch?v=AAA111",
+            "https://example.com/stream.mp3",
+            0L,
+            "https://example.com/cover-a.jpg",
+            "",
+            null
+        );
+        Track prepared = new Track(
+            trackId,
+            original.title(),
+            original.sourceType(),
+            original.sourceId(),
+            tempDir.resolve("track").resolve(trackId).resolve("audio.mp3").toString(),
+            original.durationMs(),
+            "https://example.com/cover-b.jpg",
+            original.artist(),
+            original.playCount()
+        );
+
+        assertTrue(service.shouldPersistPreparedTrack(original, prepared));
+    }
+
     private TrackMediaService newService() {
         return newService(null, AppConfig.ImageMode.HYBRID);
     }
@@ -234,8 +294,8 @@ class TrackMediaServiceCacheKeyTest {
 
     @SuppressWarnings("unchecked")
     private List<String> buildYtDlpCacheArgs(TrackMediaService service, Track track, Path dir) throws Exception {
-        Method method = TrackMediaService.class.getDeclaredMethod("buildYtDlpCacheArgs", Track.class, Path.class);
+        Method method = TrackMediaService.class.getDeclaredMethod("buildYtDlpCacheArgs", String.class, Track.class, Path.class);
         method.setAccessible(true);
-        return (List<String>) method.invoke(service, track, dir);
+        return (List<String>) method.invoke(service, "", track, dir);
     }
 }

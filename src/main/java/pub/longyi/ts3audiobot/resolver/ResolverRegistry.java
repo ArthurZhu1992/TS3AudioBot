@@ -78,11 +78,17 @@ public final class ResolverRegistry {
         if (searchAuthService == null) {
             return "";
         }
+        String globalCookie = searchAuthService.resolveAuth(source, "")
+            .filter(record -> !searchAuthService.isExpired(record))
+            .map(SearchAuthStore.AuthRecord::cookie)
+            .map(this::safeTrim)
+            .orElse("");
+        if (!globalCookie.isBlank()) {
+            return globalCookie;
+        }
         List<SearchAuthStore.AuthRecord> records = searchAuthService.listAuthBySource(source);
         if (records == null || records.isEmpty()) {
-            return searchAuthService.resolveAuth(source, "")
-                .map(record -> record.cookie() == null ? "" : record.cookie())
-                .orElse("");
+            return "";
         }
         SearchAuthStore.AuthRecord latest = null;
         for (SearchAuthStore.AuthRecord record : records) {
@@ -100,7 +106,11 @@ public final class ResolverRegistry {
                 latest = record;
             }
         }
-        return latest == null ? "" : (latest.cookie() == null ? "" : latest.cookie());
+        return latest == null ? "" : safeTrim(latest.cookie());
+    }
+
+    private String safeTrim(String value) {
+        return value == null ? "" : value.trim();
     }
 
 

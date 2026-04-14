@@ -53,6 +53,8 @@ public final class FfmpegAudioEngine implements AudioEngine {
     private static final String YT_DLP_ARG_ENCODING = "--encoding";
     private static final String YT_DLP_ARG_FORMAT = "-f";
     private static final String YT_DLP_ARG_OUTPUT = "-o";
+    private static final long CHANNEL_CODEC_QUERY_COOLDOWN_SUCCESS_MS = 180_000L;
+    private static final long CHANNEL_CODEC_QUERY_COOLDOWN_FAILURE_MS = 30_000L;
 
     private final String ffmpegPath;
     private final String ytDlpPath;
@@ -73,6 +75,7 @@ public final class FfmpegAudioEngine implements AudioEngine {
     private volatile long droppedFrames;
     private volatile long droppedNoConn;
     private volatile long droppedEncode;
+    private volatile long nextChannelCodecQueryAt;
 
     private static final long STATS_INTERVAL_MS = 5000L;
 
@@ -251,18 +254,26 @@ public final class FfmpegAudioEngine implements AudioEngine {
     }
 
     private void updateChannelBitrate() {
+        long now = System.currentTimeMillis();
+        if (now < nextChannelCodecQueryAt) {
+            log.debug("[Audio] channel codec query skipped: cooldown active");
+            return;
+        }
         if (!voiceClient.isConnected()) {
             log.info("[Audio] channel codec query skipped: voice client not connected");
+            nextChannelCodecQueryAt = now + CHANNEL_CODEC_QUERY_COOLDOWN_FAILURE_MS;
             return;
         }
         if (!(voiceClient instanceof TsFullClient fullClient)) {
             log.info("[Audio] channel codec query skipped: voice client is not full ts3 client");
+            nextChannelCodecQueryAt = now + CHANNEL_CODEC_QUERY_COOLDOWN_FAILURE_MS;
             return;
         }
         log.info("[Audio] channel codec query before play");
         TsFullClient.ChannelCodecInfo codecInfo = fullClient.fetchChannelCodecInfo();
         if (codecInfo == null) {
             log.warn("[Audio] channel codec query failed: empty result, keep current encoder bitrate");
+            nextChannelCodecQueryAt = now + CHANNEL_CODEC_QUERY_COOLDOWN_FAILURE_MS;
             return;
         }
         int bitrate = resolveBitrate(codecInfo.codec(), codecInfo.quality());
@@ -274,6 +285,7 @@ public final class FfmpegAudioEngine implements AudioEngine {
                 codecInfo.quality(),
                 bitrate
             );
+            nextChannelCodecQueryAt = now + CHANNEL_CODEC_QUERY_COOLDOWN_SUCCESS_MS;
             return;
         }
         log.info(
@@ -282,6 +294,7 @@ public final class FfmpegAudioEngine implements AudioEngine {
             codecInfo.quality(),
             bitrate
         );
+        nextChannelCodecQueryAt = now + CHANNEL_CODEC_QUERY_COOLDOWN_SUCCESS_MS;
     }
 
     private void startPump(Track track, long positionMs) {

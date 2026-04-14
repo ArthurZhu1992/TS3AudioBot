@@ -138,6 +138,15 @@ public final class ExternalCliResolver implements TrackResolver {
                 if (!cookie.isBlank()) {
                     args.add("--add-headers");
                     args.add("Cookie: " + cookie);
+                    // 保留此日志：如果这里没有带上 Cookie，解析器可能悄悄回退到试听链接
+                    // （例如网易云 30 秒 URL），问题很难从业务层直接看出来。
+                    log.info("[Resolver:{}] apply cookie header len={} query={}",
+                        sourceType,
+                        cookie.length(),
+                        queryArg
+                    );
+                } else if ("netease".equalsIgnoreCase(sourceType) || "qq".equalsIgnoreCase(sourceType)) {
+                    log.warn("[Resolver:{}] cookie header missing query={}", sourceType, queryArg);
                 }
             }
             args.add(queryArg);
@@ -268,7 +277,7 @@ public final class ExternalCliResolver implements TrackResolver {
             long duration = cleaned.size() > 1 ? parseDurationSeconds(cleaned.get(1)) : 0;
             return new UrlPick("", title, duration, "");
         }
-        String preferred = selectPreferredUrl(urls, fallbackTitle);
+        String preferred = selectPreferredUrl(urls);
         if (preferred == null || preferred.isBlank()) {
             preferred = urls.get(0);
         }
@@ -296,7 +305,13 @@ public final class ExternalCliResolver implements TrackResolver {
         return new UrlPick(preferred, title, duration, coverUrl);
     }
 
-    private String selectPreferredUrl(List<String> urls, String fallbackTitle) {
+    private String selectPreferredUrl(List<String> urls) {
+        if ("netease".equalsIgnoreCase(sourceType)) {
+            String preferredNetease = selectPreferredNeteaseUrl(urls);
+            if (!preferredNetease.isBlank()) {
+                return preferredNetease;
+            }
+        }
         String candidate = null;
         for (String url : urls) {
             if (isLikelyStreamUrl(url)) {
@@ -306,10 +321,26 @@ public final class ExternalCliResolver implements TrackResolver {
                 candidate = url;
             }
         }
-        if (candidate != null && !candidate.equals(fallbackTitle)) {
-            return candidate;
-        }
         return candidate;
+    }
+
+    private String selectPreferredNeteaseUrl(List<String> urls) {
+        if (urls == null || urls.isEmpty()) {
+            return "";
+        }
+        // 网易试听链接常出现在 musicrep 路径；当同时返回多条 URL 时，优先选择非 musicrep
+        // 链路，降低误选 30 秒试听流的概率。
+        for (String url : urls) {
+            if (url == null || url.isBlank()) {
+                continue;
+            }
+            String lower = url.toLowerCase(Locale.ROOT);
+            if (lower.contains("jdymusic/")
+                || (lower.contains("music.126.net") && !lower.contains("musicrep"))) {
+                return url;
+            }
+        }
+        return "";
     }
 
     private boolean isLikelyStreamUrl(String url) {

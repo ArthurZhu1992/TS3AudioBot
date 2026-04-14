@@ -619,14 +619,21 @@ public final class BotInstance {
     }
 
     private Track prepareTrackForPlayback(String playlistId, String itemId, Track track) {
-        if (track == null) {
+        Track baseTrack = track;
+        if (itemId != null && !itemId.isBlank()) {
+            QueueItem refreshed = queueService.refreshItem(id, playlistId, itemId);
+            if (refreshed != null && refreshed.track() != null) {
+                baseTrack = refreshed.track();
+            }
+        }
+        if (baseTrack == null) {
             return null;
         }
-        Track prepared = trackMediaService.prepareForPlayback(track);
+        Track prepared = trackMediaService.prepareForPlayback(id, baseTrack);
         if (itemId != null
             && !itemId.isBlank()
-            && !prepared.equals(track)
-            && trackMediaService.shouldPersistPreparedTrack(track, prepared)) {
+            && !prepared.equals(baseTrack)
+            && trackMediaService.shouldPersistPreparedTrack(baseTrack, prepared)) {
             queueService.updateTrack(id, playlistId, itemId, prepared);
         }
         return prepared;

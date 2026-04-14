@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
@@ -58,8 +59,13 @@ public final class QueueService {
      * 鍒涘缓 QueueService 瀹炰緥銆?     * @param configService 鍙傛暟 configService
      */
     @Autowired
-    public QueueService(ConfigService configService) {
-        this(configService, initRepairResolvers(configService));
+    public QueueService(ConfigService configService, ResolverRegistry resolverRegistry) {
+        // 重要说明：
+        // 队列修复用的解析器必须来自 Spring 注入的 ResolverRegistry，
+        // 这样才能复用已注入 SearchAuthService 的“带登录态”解析器。
+        // 如果在这里重新 new ResolverRegistry，可能丢失 Netease/QQ 的 Cookie，
+        // 导致付费歌曲回退到 30 秒试听链接。
+        this(configService, initRepairResolvers(configService, resolverRegistry));
     }
 
     QueueService(ConfigService configService, List<TrackResolver> repairResolvers) {
@@ -613,8 +619,12 @@ public final class QueueService {
         return playlists;
     }
 
-    private static List<TrackResolver> initRepairResolvers(ConfigService configService) {
+    private static List<TrackResolver> initRepairResolvers(ConfigService configService, ResolverRegistry resolverRegistry) {
         try {
+            if (resolverRegistry != null) {
+                return resolverRegistry.list();
+            }
+            // 仅用于非 Spring 场景（如单测）的兜底路径；生产环境应走注入的 resolverRegistry。
             return new ResolverRegistry(configService).list();
         } catch (Exception ex) {
             log.warn("Failed to initialize queue repair resolvers", ex);
@@ -730,6 +740,7 @@ public final class QueueService {
     private Track mergeTrack(Track existing, Track resolved) {
         String sourceId = firstNonBlank(existing.sourceId(), resolved.sourceId());
         String coverUrl = firstNonBlank(existing.coverUrl(), resolved.coverUrl());
+        String streamUrl = chooseStreamUrl(existing.streamUrl(), resolved.streamUrl());
         if (isInternalMediaCoverUrl(coverUrl) && !isBlank(resolved.coverUrl())) {
             coverUrl = resolved.coverUrl();
         }
@@ -740,7 +751,7 @@ public final class QueueService {
             chooseTitle(existing.title(), sourceId, resolved.title()),
             firstNonBlank(existing.sourceType(), resolved.sourceType()),
             sourceId,
-            firstNonBlank(existing.streamUrl(), resolved.streamUrl()),
+            streamUrl,
             existing.durationMs() > 0 ? existing.durationMs() : Math.max(0, resolved.durationMs()),
             coverUrl,
             firstNonBlank(existing.artist(), resolved.artist()),
@@ -755,9 +766,86 @@ public final class QueueService {
         return titleNeedsRepair(track.title(), track.sourceId())
             || isBlank(track.sourceType())
             || isBlank(track.streamUrl())
+            || isInvalidLocalStreamUrl(track.streamUrl())
+            || isExpiredDirectStreamUrl(track.streamUrl())
+            || isLikelyEphemeralHttpStreamUrl(track.streamUrl())
             || track.durationMs() <= 0
             || isBlank(track.coverUrl())
             || isInternalMediaCoverUrl(track.coverUrl());
+    }
+
+    private String chooseStreamUrl(String existing, String resolved) {
+        if (isBlank(existing)) {
+            return firstNonBlank(resolved, existing);
+        }
+        // Persisted local cache paths and signed direct links can expire; prefer fresh resolver output.
+        if (isInvalidLocalStreamUrl(existing)
+            || isExpiredDirectStreamUrl(existing)
+            || isLikelyEphemeralHttpStreamUrl(existing)) {
+            return firstNonBlank(resolved, existing);
+        }
+        return firstNonBlank(existing, resolved);
+    }
+
+    private boolean isInvalidLocalStreamUrl(String value) {
+        if (isBlank(value) || isHttpUrl(value)) {
+            return false;
+        }
+        try {
+            return !Files.isRegularFile(Path.of(value));
+        } catch (Exception ex) {
+            return true;
+        }
+    }
+
+    private boolean isExpiredDirectStreamUrl(String value) {
+        if (!isHttpUrl(value)) {
+            return false;
+        }
+        Long expireEpoch = tryResolveExpireEpoch(value);
+        if (expireEpoch == null) {
+            return false;
+        }
+        return expireEpoch <= Instant.now().getEpochSecond();
+    }
+
+    private boolean isLikelyEphemeralHttpStreamUrl(String value) {
+        if (!isHttpUrl(value)) {
+            return false;
+        }
+        String lower = value.toLowerCase(Locale.ROOT);
+        return lower.contains("vuutv=")
+            || lower.contains("token=")
+            || lower.contains("signature=")
+            || lower.contains("x-amz-")
+            || lower.contains("auth=");
+    }
+
+    private Long tryResolveExpireEpoch(String value) {
+        if (isBlank(value)) {
+            return null;
+        }
+        int keyIndex = value.indexOf("expire=");
+        if (keyIndex < 0) {
+            return null;
+        }
+        int begin = keyIndex + "expire=".length();
+        int end = begin;
+        while (end < value.length()) {
+            char ch = value.charAt(end);
+            if (!Character.isDigit(ch)) {
+                break;
+            }
+            end++;
+        }
+        if (end <= begin) {
+            return null;
+        }
+        try {
+            return Long.parseLong(value.substring(begin, end));
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 
     private boolean isInternalMediaCoverUrl(String value) {

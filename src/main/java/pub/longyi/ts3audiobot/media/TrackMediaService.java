@@ -130,15 +130,23 @@ public final class TrackMediaService {
     }
 
     public Track prepareForPlayback(Track track) {
-        return prepare(track, true);
+        return prepare("", track, true);
+    }
+
+    public Track prepareForPlayback(String botId, Track track) {
+        return prepare(botId, track, true);
     }
 
     public boolean shouldPersistPreparedTrack(Track original, Track prepared) {
         if (original == null || prepared == null) {
             return false;
         }
-        return !Objects.equals(original.streamUrl(), prepared.streamUrl())
-            || !Objects.equals(original.coverUrl(), prepared.coverUrl());
+        boolean streamChanged = !Objects.equals(original.streamUrl(), prepared.streamUrl());
+        if (streamChanged && isManagedCachePath(prepared.streamUrl())) {
+            // Cache files are ephemeral runtime artifacts, not stable queue state.
+            streamChanged = false;
+        }
+        return streamChanged || !Objects.equals(original.coverUrl(), prepared.coverUrl());
     }
 
     public void deleteTrackMedia(Track track) {
@@ -204,13 +212,17 @@ public final class TrackMediaService {
     }
 
     private Track prepare(Track track, boolean includeAudio) {
+        return prepare("", track, includeAudio);
+    }
+
+    private Track prepare(String botId, Track track, boolean includeAudio) {
         if (track == null || isBlank(track.id())) {
             return track;
         }
         String coverUrl = ensureCover(track);
         String streamUrl = track.streamUrl();
         if (includeAudio) {
-            String cachedAudio = ensureAudio(track);
+            String cachedAudio = ensureAudio(botId, track);
             if (!cachedAudio.isBlank()) {
                 streamUrl = cachedAudio;
             }
@@ -291,7 +303,7 @@ public final class TrackMediaService {
         return safeCoverUrl;
     }
 
-    private String ensureAudio(Track track) {
+    private String ensureAudio(String botId, Track track) {
         if (track == null) {
             return "";
         }
@@ -331,7 +343,7 @@ public final class TrackMediaService {
             enforceCacheSizeLimitIfNeeded();
             return migratedLegacyShared.get().toAbsolutePath().normalize().toString();
         }
-        if (cacheAudioWithYtDlp(track, trackDir)) {
+        if (cacheAudioWithYtDlp(botId, track, trackDir)) {
             markCacheEntryTouched(trackDir);
             enforceCacheSizeLimitIfNeeded();
             return findCachedFile(trackDir, "audio.").map(path -> path.toAbsolutePath().normalize().toString()).orElse(track.streamUrl());
@@ -351,7 +363,7 @@ public final class TrackMediaService {
         return track.streamUrl();
     }
 
-    private boolean cacheAudioWithYtDlp(Track track, Path trackDir) {
+    private boolean cacheAudioWithYtDlp(String botId, Track track, Path trackDir) {
         String sourceId = track.sourceId();
         if (!isHttpUrl(sourceId)) {
             return false;
@@ -360,7 +372,7 @@ public final class TrackMediaService {
         if (isBlank(command)) {
             return false;
         }
-        List<String> args = buildYtDlpCacheArgs(track, trackDir);
+        List<String> args = buildYtDlpCacheArgs(botId, track, trackDir);
         ProcessBuilder builder = new ProcessBuilder(args);
         builder.redirectErrorStream(true);
         try {
@@ -382,7 +394,7 @@ public final class TrackMediaService {
         }
     }
 
-    private List<String> buildYtDlpCacheArgs(Track track, Path trackDir) {
+    private List<String> buildYtDlpCacheArgs(String botId, Track track, Path trackDir) {
         String sourceId = track == null ? "" : track.sourceId();
         String sourceType = track == null ? "" : track.sourceType();
         String command = resolveYtCommand(sourceType, sourceId);
@@ -402,7 +414,7 @@ public final class TrackMediaService {
             // IMPORTANT: do not remove this cookie forwarding.
             // Resolver and cache are two independent yt-dlp invocations; without
             // cookie in cache stage, VIP tracks can silently fall back to ~30s previews.
-            String cookie = resolveSourceCookie(sourceType, sourceId);
+            String cookie = resolveSourceCookie(botId, sourceType, sourceId);
             if (!isBlank(cookie)) {
                 args.add("--add-headers");
                 args.add("Cookie: " + cookie);
@@ -433,7 +445,7 @@ public final class TrackMediaService {
         return "";
     }
 
-    private String resolveSourceCookie(String sourceType, String sourceId) {
+    private String resolveSourceCookie(String botId, String sourceType, String sourceId) {
         if (searchAuthService == null) {
             return "";
         }
@@ -455,10 +467,29 @@ public final class TrackMediaService {
         if (isBlank(source)) {
             return "";
         }
-        return latestAuthCookie(source);
+        return latestAuthCookie(source, botId);
     }
 
-    private String latestAuthCookie(String source) {
+    private String latestAuthCookie(String source, String botId) {
+        String safeBotId = botId == null ? "" : botId.trim();
+        if (!safeBotId.isBlank()) {
+            Optional<String> botScoped = searchAuthService.resolveAuth(source, safeBotId)
+                .filter(record -> !searchAuthService.isExpired(record))
+                .map(SearchAuthStore.AuthRecord::cookie)
+                .map(this::safeTrim)
+                .filter(cookie -> !cookie.isBlank());
+            if (botScoped.isPresent()) {
+                return botScoped.get();
+            }
+        }
+        Optional<String> globalScoped = searchAuthService.resolveAuth(source, "")
+            .filter(record -> !searchAuthService.isExpired(record))
+            .map(SearchAuthStore.AuthRecord::cookie)
+            .map(this::safeTrim)
+            .filter(cookie -> !cookie.isBlank());
+        if (globalScoped.isPresent()) {
+            return globalScoped.get();
+        }
         List<SearchAuthStore.AuthRecord> records = searchAuthService.listAuthBySource(source);
         SearchAuthStore.AuthRecord latest = null;
         if (records != null) {
@@ -480,12 +511,13 @@ public final class TrackMediaService {
             }
         }
         if (latest != null) {
-            return latest.cookie().trim();
+            return safeTrim(latest.cookie());
         }
-        return searchAuthService.resolveAuth(source, "")
-            .map(SearchAuthStore.AuthRecord::cookie)
-            .map(String::trim)
-            .orElse("");
+        return "";
+    }
+
+    private String safeTrim(String value) {
+        return value == null ? "" : value.trim();
     }
 
     private String resolveYtCommand(String sourceType, String sourceId) {
@@ -1045,6 +1077,18 @@ public final class TrackMediaService {
         }
         try {
             return Files.isRegularFile(Path.of(value));
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    private boolean isManagedCachePath(String value) {
+        if (isBlank(value) || isHttpUrl(value)) {
+            return false;
+        }
+        try {
+            Path candidate = Path.of(value).toAbsolutePath().normalize();
+            return candidate.startsWith(mediaBaseDir);
         } catch (Exception ex) {
             return false;
         }

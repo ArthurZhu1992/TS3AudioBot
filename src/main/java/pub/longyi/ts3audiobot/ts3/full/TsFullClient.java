@@ -91,6 +91,9 @@ public final class TsFullClient implements Ts3VoiceClient {
     private volatile FileTransferInitPayload lastFileTransferInitPayload;
     private volatile int resolvedAvatarMaxFileSizeBytes = AVATAR_MAX_FILE_SIZE_BYTES;
     private volatile boolean avatarMaxFileSizeResolved;
+    private volatile boolean channelRejoinScheduled;
+    private volatile long floodBackoffUntilMs;
+    private volatile long floodBackoffDelayMs = FLOOD_BACKOFF_INITIAL_MS;
     private int fileTransferId = 1;
 
     private static final int MAX_PACKET_SIZE = 500;
@@ -100,8 +103,15 @@ public final class TsFullClient implements Ts3VoiceClient {
     private static final int VOICE_FLAGGED_PACKETS = 5;
     private static final byte VOICE_SESSION_MAX = 7;
     private static final long COMMAND_RESPONSE_TIMEOUT_MS = 5000L;
-    private static final int CHANNEL_LIST_RETRY_MAX = 3;
-    private static final long CHANNEL_LIST_RETRY_DELAY_MS = 1000L;
+    private static final int CHANNEL_LIST_RETRY_MAX = 2;
+    private static final long CHANNEL_LIST_RETRY_DELAY_MS = 5000L;
+    private static final int TRANSIENT_RETRY_MAX = 2;
+    private static final long TRANSIENT_RETRY_DELAY_MS = 5000L;
+    private static final long CHANNEL_REJOIN_DELAY_MS = 20_000L;
+    private static final long FLOOD_BACKOFF_INITIAL_MS = 8_000L;
+    private static final long FLOOD_BACKOFF_MAX_MS = 60_000L;
+    private static final long PENDING_COMMAND_WAIT_MS = 2_000L;
+    private static final long PENDING_COMMAND_POLL_MS = 25L;
     private static final String CHANNEL_ID_PREFIX = "cid=";
     private static final String CHANNEL_ID_MARKER = "#";
     private static final String CHANNEL_PATH_SEPARATOR = "/";
@@ -124,6 +134,7 @@ public final class TsFullClient implements Ts3VoiceClient {
     private static final long FILE_TRANSFER_PAYLOAD_WAIT_MS = 1200L;
     private static final long FILE_TRANSFER_PAYLOAD_MAX_AGE_MS = 3000L;
     private static final String ERROR_ID_OK = "0";
+    private static final String ERROR_ID_FLOOD = "524";
     private static final String ERROR_ID_PERMISSION_DENIED = "2568";
     private static final String ERROR_MSG_PERMISSION_DENIED = "insufficient client permissions";
 
@@ -278,13 +289,26 @@ public final class TsFullClient implements Ts3VoiceClient {
             );
             return false;
         }
-        CommandResponse response = requestCommandResponse(
-            "clientupdate",
-            TsCommandBuilder.params("client_nickname", nickname.trim())
-        );
-        boolean success = isCommandSuccess(response);
-        log.info("[TS3] nickname update success={} nickname={}", success, nickname.trim());
-        return success;
+        String targetNickname = nickname.trim();
+        for (int attempt = 1; attempt <= TRANSIENT_RETRY_MAX; attempt++) {
+            CommandResponse response = requestCommandResponse(
+                "clientupdate",
+                TsCommandBuilder.params("client_nickname", targetNickname)
+            );
+            if (isCommandSuccess(response)) {
+                log.info("[TS3] nickname update success=true nickname={} attempt={}", targetNickname, attempt);
+                return true;
+            }
+            if (!isTransientRetryable(response)) {
+                log.info("[TS3] nickname update success=false nickname={} attempt={}", targetNickname, attempt);
+                return false;
+            }
+            if (attempt < TRANSIENT_RETRY_MAX) {
+                sleepQuietly(TRANSIENT_RETRY_DELAY_MS);
+            }
+        }
+        log.info("[TS3] nickname update success=false nickname={} attempt={}", targetNickname, TRANSIENT_RETRY_MAX);
+        return false;
     }
 
 
@@ -668,13 +692,7 @@ public final class TsFullClient implements Ts3VoiceClient {
         }
         String channelId = currentChannelId;
         if (channelId == null || channelId.isBlank()) {
-            channelId = resolveChannelIdFromClientInfo();
-        }
-        if (channelId == null || channelId.isBlank()) {
-            channelId = resolveChannelIdFromClientList();
-        }
-        if (channelId == null || channelId.isBlank()) {
-            log.warn("[TS3] channelinfo skipped: channelId not resolved");
+            log.info("[TS3] channelinfo skipped: current channel unknown");
             return null;
         }
         log.info("[TS3] channelinfo cid={}", channelId);
@@ -980,6 +998,9 @@ public final class TsFullClient implements Ts3VoiceClient {
         if (listener != null) {
             listener.run();
         }
+        if (attemptJoinConfiguredChannelDirect(false)) {
+            return;
+        }
         scheduleChannelListPrint();
     }
 
@@ -1125,8 +1146,59 @@ public final class TsFullClient implements Ts3VoiceClient {
         }
         String currentCid = currentChannelId;
         if (currentCid != null && currentCid.equals(targetCid)) {
+            channelRejoinScheduled = false;
             return;
         }
+        moveToChannelWithRetry(data, target, targetCid, false);
+    }
+
+    private boolean attemptJoinConfiguredChannelDirect(boolean allowImmediateMove) {
+        ConnectionDataFull data = connectionData;
+        if (data == null) {
+            return false;
+        }
+        String target = data.defaultChannel();
+        String targetCid = resolveExplicitChannelId(target);
+        if (targetCid == null || targetCid.isBlank()) {
+            return false;
+        }
+        String currentCid = currentChannelId;
+        if (currentCid != null && currentCid.equals(targetCid)) {
+            channelRejoinScheduled = false;
+            return true;
+        }
+        if (!allowImmediateMove) {
+            // Login burst is flood-prone; defer direct move to avoid burning flood budget.
+            scheduleExplicitChannelRejoin();
+            return true;
+        }
+        moveToChannelWithRetry(data, target, targetCid, true);
+        return true;
+    }
+
+    private String resolveExplicitChannelId(String target) {
+        if (target == null) {
+            return null;
+        }
+        String trimmed = target.trim();
+        if (trimmed.isBlank()) {
+            return null;
+        }
+        if (trimmed.startsWith(CHANNEL_ID_PREFIX)) {
+            String cid = trimmed.substring(CHANNEL_ID_PREFIX.length()).trim();
+            return cid.matches(CHANNEL_ID_PATTERN) ? cid : null;
+        }
+        if (trimmed.startsWith(CHANNEL_ID_MARKER)) {
+            String cid = trimmed.substring(CHANNEL_ID_MARKER.length()).trim();
+            return cid.matches(CHANNEL_ID_PATTERN) ? cid : null;
+        }
+        if (trimmed.matches(CHANNEL_ID_PATTERN)) {
+            return trimmed;
+        }
+        return null;
+    }
+
+    private void moveToChannelWithRetry(ConnectionDataFull data, String target, String targetCid, boolean explicitMode) {
         int clientId = packetHandler.getClientId();
         if (clientId <= 0) {
             log.warn("[TS3] clientmove skipped: clientId not ready");
@@ -1139,8 +1211,146 @@ public final class TsFullClient implements Ts3VoiceClient {
         if (cpw != null && !cpw.isBlank()) {
             params.put("cpw", cpw);
         }
-        log.info("[TS3] request move to channel cid={} name={}", targetCid, target);
-        requestCommand("clientmove", params);
+        for (int attempt = 1; attempt <= TRANSIENT_RETRY_MAX; attempt++) {
+            log.info("[TS3] request move to channel cid={} name={} attempt={}/{}",
+                targetCid,
+                target,
+                attempt,
+                TRANSIENT_RETRY_MAX
+            );
+            CommandResponse response = requestCommandResponse("clientmove", params);
+            if (isCommandSuccess(response)) {
+                currentChannelId = targetCid;
+                channelRejoinScheduled = false;
+                return;
+            }
+            if (!isTransientRetryable(response)) {
+                return;
+            }
+            if (attempt < TRANSIENT_RETRY_MAX) {
+                sleepQuietly(TRANSIENT_RETRY_DELAY_MS);
+            }
+        }
+        if (explicitMode) {
+            scheduleExplicitChannelRejoin();
+        } else {
+            scheduleChannelRejoin();
+        }
+    }
+
+    private boolean isTransientRetryable(CommandResponse response) {
+        if (response == null) {
+            return true;
+        }
+        return isFloodError(response);
+    }
+
+    private boolean acquirePendingCommandSlot(PendingCommand pending) {
+        long deadline = System.currentTimeMillis() + PENDING_COMMAND_WAIT_MS;
+        while (connected) {
+            synchronized (responseLock) {
+                if (pendingCommand == null) {
+                    pendingCommand = pending;
+                    return true;
+                }
+            }
+            if (System.currentTimeMillis() >= deadline) {
+                return false;
+            }
+            sleepQuietly(PENDING_COMMAND_POLL_MS);
+        }
+        return false;
+    }
+
+    private void waitForFloodBackoff(String commandName) {
+        long now = System.currentTimeMillis();
+        long until = floodBackoffUntilMs;
+        if (until <= now) {
+            return;
+        }
+        long waitMs = until - now;
+        log.info("[TS3] command delayed name={} waitMs={} reason=flood_backoff", commandName, waitMs);
+        sleepQuietly(waitMs);
+    }
+
+    private void applyFloodBackoff(String commandName, CommandResponse response) {
+        if (isCommandSuccess(response)) {
+            floodBackoffDelayMs = FLOOD_BACKOFF_INITIAL_MS;
+            return;
+        }
+        if (!isFloodError(response)) {
+            return;
+        }
+        long delay = Math.max(FLOOD_BACKOFF_INITIAL_MS, floodBackoffDelayMs);
+        delay = Math.min(delay, FLOOD_BACKOFF_MAX_MS);
+        long until = System.currentTimeMillis() + delay;
+        if (until > floodBackoffUntilMs) {
+            floodBackoffUntilMs = until;
+        }
+        floodBackoffDelayMs = Math.min(FLOOD_BACKOFF_MAX_MS, delay * 2L);
+        log.warn("[TS3] flood backoff command={} waitMs={} nextDelayMs={}",
+            commandName,
+            delay,
+            floodBackoffDelayMs
+        );
+    }
+
+    private boolean isFloodError(CommandResponse response) {
+        if (response == null || response.error == null || response.error.params() == null) {
+            return false;
+        }
+        String id = response.error.params().get("id");
+        String msg = response.error.params().get("msg");
+        if (id != null && ERROR_ID_FLOOD.equals(id.trim())) {
+            return true;
+        }
+        return msg != null && msg.toLowerCase().contains("flood");
+    }
+
+    private void scheduleChannelRejoin() {
+        if (channelRejoinScheduled) {
+            return;
+        }
+        channelRejoinScheduled = true;
+        Thread worker = new Thread(() -> {
+            sleepQuietly(CHANNEL_REJOIN_DELAY_MS);
+            channelRejoinScheduled = false;
+            if (!connected) {
+                return;
+            }
+            channelListRequested = false;
+            scheduleChannelListPrint();
+        }, "ts3-channel-rejoin");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    private void scheduleExplicitChannelRejoin() {
+        if (channelRejoinScheduled) {
+            return;
+        }
+        channelRejoinScheduled = true;
+        Thread worker = new Thread(() -> {
+            sleepQuietly(CHANNEL_REJOIN_DELAY_MS);
+            channelRejoinScheduled = false;
+            if (!connected) {
+                return;
+            }
+            attemptJoinConfiguredChannelDirect(true);
+        }, "ts3-channel-rejoin-explicit");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    private void sleepQuietly(long millis) {
+        if (millis <= 0L) {
+            return;
+        }
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private String resolveChannelId(List<ChannelSnapshot> channels, String target) {
@@ -1423,6 +1633,8 @@ public final class TsFullClient implements Ts3VoiceClient {
         commandLowQueue.reset();
         lastConnectionInfoSentAt = 0L;
         channelListRequested = false;
+        floodBackoffUntilMs = 0L;
+        floodBackoffDelayMs = FLOOD_BACKOFF_INITIAL_MS;
     }
 
     private List<ParsedCommand> requestCommand(String name, Map<String, String> params) {
@@ -1437,12 +1649,11 @@ public final class TsFullClient implements Ts3VoiceClient {
         if (!connected) {
             return null;
         }
+        waitForFloodBackoff(name);
         PendingCommand pending = new PendingCommand(nextReturnCode(), name);
-        synchronized (responseLock) {
-            if (pendingCommand != null) {
-                return null;
-            }
-            pendingCommand = pending;
+        if (!acquirePendingCommandSlot(pending)) {
+            log.warn("[TS3] command dropped name={} reason=pending_timeout", name);
+            return null;
         }
         Map<String, String> merged = new LinkedHashMap<>();
         if (params != null) {
@@ -1451,8 +1662,10 @@ public final class TsFullClient implements Ts3VoiceClient {
         merged.put("return_code", Integer.toString(pending.returnCode));
         String command = TsCommandBuilder.build(name, merged);
         sendCommand(command);
+        CommandResponse response = null;
         try {
-            return pending.future.get(COMMAND_RESPONSE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            response = pending.future.get(COMMAND_RESPONSE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            return response;
         } catch (TimeoutException ex) {
             log.warn("[TS3] command timeout name={} returnCode={}", name, pending.returnCode);
             return null;
@@ -1465,6 +1678,7 @@ public final class TsFullClient implements Ts3VoiceClient {
                     pendingCommand = null;
                 }
             }
+            applyFloodBackoff(name, response);
         }
     }
 
