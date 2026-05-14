@@ -130,29 +130,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download JAR via API
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download JAR
         run: |
-          API="${{ github.api_url }}/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts"
-          echo "Fetching artifact list..."
-          for i in 1 2 3; do
-            ARTIFACTS=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" "$API") && break
-            echo "Retry $i..."
-            sleep 5
-          done
-          ARTIFACT_ID=$(echo "$ARTIFACTS" | jq -r '.artifacts[] | select(.name=="release-jar") | .id')
-          if [ -z "$ARTIFACT_ID" ] || [ "$ARTIFACT_ID" = "null" ]; then
-            echo "ERROR: release-jar artifact not found!"
-            echo "$ARTIFACTS" | jq '.'
-            exit 1
-          fi
-          echo "Downloading artifact $ARTIFACT_ID"
-          curl -sL -H "Authorization: Bearer $GH_TOKEN" \
-            "${{ github.api_url }}/repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID/zip" \
-            -o release-jar.zip
+          gh run download ${{ github.run_id }} --name release-jar --dir .
           set +e
-          unzip -o release-jar.zip
+          unzip -o release-jar.zip 2>/dev/null || true
           set -e
           ls -la *.jar
 
@@ -206,22 +188,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          API="${{ github.api_url }}/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts"
-          ARTIFACTS=$(curl -s -H "Authorization: Bearer $GH_TOKEN" "$API")
-          for NAME in release-jar package-linux-x64 package-linux-arm64 package-win-x64 package-macos; do
-            ARTIFACT_ID=$(echo "$ARTIFACTS" | jq -r '.artifacts[] | select(.name=="'"$NAME"'") | .id')
-            [ -z "$ARTIFACT_ID" ] && continue
-            echo "Downloading $NAME (ID: $ARTIFACT_ID)"
-            curl -sL -H "Authorization: Bearer $GH_TOKEN" \
-              "${{ github.api_url }}/repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID/zip" \
-              -o "artifact-$NAME.zip"
-            unzip -o "artifact-$NAME.zip" -d "artifacts-$NAME"
-          done
-          find . -name '*.zip' -path './artifacts-*' -exec cp {} . ;
-          find . -name '*.jar' -path './artifacts-*' -exec cp {} . ;
+          gh run download ${{ github.run_id }} --dir artifacts
+          find artifacts -type f -name '*.zip' -exec cp {} . \;
+          find artifacts -type f -name '*.jar' -exec cp {} . \;
           ls -la *.zip *.jar 2>/dev/null || true
 
       - name: Generate release notes
@@ -269,29 +239,8 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Download JAR
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          API="${{ github.api_url }}/repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts"
-          echo "Fetching artifact list..."
-          for i in 1 2 3; do
-            ARTIFACTS=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" "$API") && break
-            echo "Retry $i..."
-            sleep 5
-          done
-          ARTIFACT_ID=$(echo "$ARTIFACTS" | jq -r '.artifacts[] | select(.name=="release-jar") | .id')
-          if [ -z "$ARTIFACT_ID" ] || [ "$ARTIFACT_ID" = "null" ]; then
-            echo "ERROR: release-jar artifact not found!"
-            echo "$ARTIFACTS" | jq '.'
-            exit 1
-          fi
-          echo "Downloading artifact $ARTIFACT_ID"
-          curl -sL -H "Authorization: Bearer $GH_TOKEN" \
-            "${{ github.api_url }}/repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID/zip" \
-            -o release-jar.zip
-          set +e
-          unzip -o release-jar.zip
-          set -e
+          gh run download ${{ github.run_id }} --name release-jar --dir .
           mv TS3AudioBot-*.jar TS3AudioBot.jar
 
       - name: Set up QEMU
