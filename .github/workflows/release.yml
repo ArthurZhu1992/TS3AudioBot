@@ -68,7 +68,7 @@ jobs:
           echo "Building TS3AudioBot v$VER"
 
       - name: Build JAR with version
-        run: ./gradlew bootJar --project-version=${{ steps.version.outputs.version }}
+        run: ./gradlew bootJar -Pversion=${{ steps.version.outputs.version }}
 
       - name: Upload JAR
         uses: actions/upload-artifact@v4
