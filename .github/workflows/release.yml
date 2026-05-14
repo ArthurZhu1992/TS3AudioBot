@@ -151,7 +151,9 @@ jobs:
           curl -sL -H "Authorization: Bearer $GH_TOKEN" \
             "${{ github.api_url }}/repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID/zip" \
             -o release-jar.zip
+          set +e
           unzip -o release-jar.zip
+          set -e
           ls -la *.jar
 
       - name: Extract version
@@ -287,7 +289,9 @@ jobs:
           curl -sL -H "Authorization: Bearer $GH_TOKEN" \
             "${{ github.api_url }}/repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID/zip" \
             -o release-jar.zip
+          set +e
           unzip -o release-jar.zip
+          set -e
           mv TS3AudioBot-*.jar TS3AudioBot.jar
 
       - name: Set up QEMU
