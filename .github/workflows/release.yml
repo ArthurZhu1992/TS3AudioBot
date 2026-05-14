@@ -68,13 +68,18 @@ jobs:
           echo "Building TS3AudioBot v$VER"
 
       - name: Build JAR with version
-        run: ./gradlew bootJar -Pversion=${{ steps.version.outputs.version }}
+        run: |
+          ./gradlew bootJar -Pversion=${{ steps.version.outputs.version }}
+          echo "=== build/libs contents ==="
+          ls -la build/libs/
+          echo "=== looking for JAR ==="
+          find build -name '*.jar' -type f
 
       - name: Upload JAR
         uses: actions/upload-artifact@v4
         with:
           name: release-jar
-          path: build/libs/TS3AudioBot-*.jar
+          path: build/**/*.jar
 
   # ────────────────────────────
   # 多平台打包（并行）
