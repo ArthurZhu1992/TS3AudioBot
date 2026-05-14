@@ -134,10 +134,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh run download ${{ github.run_id }} --name release-jar --dir .
-          set +e
-          unzip -o release-jar.zip 2>/dev/null || true
-          set -e
+          gh run download ${{ github.run_id }} --name release-jar --dir jar-dl
+          find jar-dl -name '*.jar' -exec cp {} . \;
           ls -la *.jar
 
       - name: Extract version
@@ -246,7 +244,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh run download ${{ github.run_id }} --name release-jar --dir .
+          gh run download ${{ github.run_id }} --name release-jar --dir jar-dl
+          find jar-dl -name '*.jar' -exec cp {} . \;
           mv TS3AudioBot-*.jar TS3AudioBot.jar
 
       - name: Set up QEMU
