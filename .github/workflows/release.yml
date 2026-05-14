@@ -13,6 +13,7 @@ on:
 permissions:
   contents: write
   packages: write
+  actions: read
 
 env:
   REGISTRY: ghcr.io
@@ -91,6 +92,7 @@ jobs:
       matrix:
         include:
           - suffix: linux-x64
+            desc: Linux x86_64
             ffmpeg-url: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz
             ffmpeg-extract: |
               tar xf ffmpeg.tar.xz
@@ -99,7 +101,18 @@ jobs:
             yt-dlp-url: https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp
             yt-name: yt-dlp
 
+          - suffix: linux-arm64
+            desc: Linux ARM64 (aarch64)
+            ffmpeg-url: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linuxarm64-gpl.tar.xz
+            ffmpeg-extract: |
+              tar xf ffmpeg.tar.xz
+              mv ffmpeg-master-*-linuxarm64-gpl/bin/ffmpeg staging/ffmpeg/
+              mv ffmpeg-master-*-linuxarm64-gpl/bin/ffprobe staging/ffmpeg/
+            yt-dlp-url: https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp
+            yt-name: yt-dlp
+
           - suffix: win-x64
+            desc: Windows x86_64
             ffmpeg-url: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip
             ffmpeg-extract: |
               7z x ffmpeg.zip -o/tmp/ffmpeg-x -y > /dev/null
@@ -107,12 +120,14 @@ jobs:
             yt-dlp-url: https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe
             yt-name: yt-dlp.exe
 
-          - suffix: macos-x64
-            ffmpeg-url: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-macos64-gpl.tar.xz
+          - suffix: macos
+            desc: macOS Universal (Intel + Apple Silicon)
+            ffmpeg-url: https://evermeet.cx/ffmpeg/ffmpeg-8.1.zip
             ffmpeg-extract: |
-              tar xf ffmpeg.tar.xz
-              mv ffmpeg-master-*-macos64-gpl/bin/ffmpeg staging/ffmpeg/
-              mv ffmpeg-master-*-macos64-gpl/bin/ffprobe staging/ffmpeg/
+              unzip -j ffmpeg.zip -d staging/ffmpeg/
+              curl -fsSL -o ffprobe.zip https://evermeet.cx/ffmpeg/ffprobe-8.1.zip
+              unzip -j ffprobe.zip -d staging/ffmpeg/
+              rm -f ffprobe.zip
             yt-dlp-url: https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp
             yt-name: yt-dlp
 
@@ -197,13 +212,15 @@ jobs:
           | 平台 | 文件 |
           |------|------|
           | Linux x64 | \`TS3AudioBot-${V}-linux-x64.zip\` |
+          | Linux ARM64 | \`TS3AudioBot-${V}-linux-arm64.zip\` |
           | Windows x64 | \`TS3AudioBot-${V}-win-x64.zip\` |
-          | macOS x64 | \`TS3AudioBot-${V}-macos-x64.zip\` |
+          | macOS (Intel+Apple Silicon) | \`TS3AudioBot-${V}-macos.zip\` |
           | 裸 JAR | \`TS3AudioBot-${V}.jar\` |
 
           Docker: \`docker pull ghcr.io/${{ github.repository }}:v${V}\`
 
-          每个 ZIP 包含：TS3AudioBot JAR + FFmpeg + yt-dlp + 配置模板
+          每个 ZIP 包含对应平台编译的 FFmpeg 8.1 + yt-dlp + 配置模板
+          裸 JAR 需自行安装 Java 21 + FFmpeg + yt-dlp
           EOF
 
       - name: Create Release
