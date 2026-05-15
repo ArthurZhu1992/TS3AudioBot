@@ -216,7 +216,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh run download ${{ github.run_id }} --dir artifacts
+          # Docker 构建会生成 .dockerbuild 伪构件，不是有效 ZIP，跳过它
+          # 逐个下载需要的包
+          for ARTIFACT in package-linux-x64 package-linux-arm64 package-win-x64 package-macos release-jar; do
+            echo "Downloading $ARTIFACT..."
+            gh run download ${{ github.run_id }} --name "$ARTIFACT" --dir artifacts 2>&1 || echo "WARNING: $ARTIFACT not found, skipping"
+          done
           find artifacts -type f -name '*.zip' -exec cp {} . \;
           find artifacts -type f -name '*.jar' -exec cp {} . \;
           ls -la *.zip *.jar 2>/dev/null || true
