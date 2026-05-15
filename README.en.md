@@ -14,78 +14,44 @@ TS3AudioBot is a TeamSpeak 3 audio bot with a built-in web console. It supports 
 - External config file to override paths and tools
 
 ### Quick Start
-#### 1) Requirements
-- Java 21
-- FFmpeg (in PATH or placed under `ffmpeg/` next to the jar)
-- yt-dlp (in PATH or configured explicitly)
 
-Optional: auto-download FFmpeg / yt-dlp (saved under `ffmpeg/` and `yt-dlp/`)
+#### Download a release package
 
-Windows PowerShell:
-```powershell
-.\scripts\setup-tools.ps1
-```
+Download the ZIP for your platform from [Releases](https://github.com/ArthurZhu1992/TS3AudioBot/releases).
+Each package includes: JAR + FFmpeg + yt-dlp + config template + startup scripts.
 
-Linux / macOS:
+| Platform | Package |
+|----------|---------|
+| Linux x86_64 | `TS3AudioBot-*-linux-x64.zip` |
+| Linux ARM64 | `TS3AudioBot-*-linux-arm64.zip` |
+| Windows x86_64 | `TS3AudioBot-*-win-x64.zip` |
+| macOS (Intel + Apple Silicon) | `TS3AudioBot-*-macos.zip` |
+
 ```bash
-./scripts/setup-tools.sh
+unzip TS3AudioBot-*-linux-x64.zip -d ts3audiobot
+cd ts3audiobot
+./start.sh
 ```
 
-After download:
-- Keep `ffmpeg/` and `yt-dlp/` **next to the jar** (or run the app from this project root)
-- Or add the executables to PATH
+On Windows, extract and double-click `start.bat`.
 
-#### 2) External Config
-Configuration is now unified into two layers:
-- `application.yml` (built-in defaults + env var overrides)
-- `ts3Audio-config.toml` (deployment-side editable settings)
+#### Run manually
 
-Place `ts3Audio-config.toml` **next to the jar** and edit as needed:
-```toml
-[configs]
-db_path = "data/ts3audiobot.db"
-bots_path = "bots"
-
-[web]
-port = 58913
-hosts = ["*"]
-
-[web.api]
-enabled = false
-
-[web.interface]
-enabled = true
-
-[tools]
-ffmpeg_path = "ffmpeg"
-
-[resolvers.external]
-yt = "yt-dlp"
-ytmusic = "yt-dlp"
-netease = "netease-cloud-music"
-qq = "qqmusic"
-
-[media]
-cache_enabled = true
-audio_cache_enabled = true
-max_size_gb = 20
-cache_ttl_hours = 720
-
-[media.image]
-enabled = true
-# mode options:
-# - "direct": source URL only (no local proxy)
-# - "hybrid": source URL first, auto fallback to local proxy if image load fails
-# - "proxy": always use local proxy and resized cover
-mode = "hybrid"
-thumb_size = 120
-cover_size = 360
+```bash
+java -jar TS3AudioBot-*.jar
 ```
-Notes:
-- All keys are optional; invalid values fall back to built-in defaults
-- Relative `db_path` resolves from the config file directory
 
-#### 3) Build
+#### Docker
+
+```bash
+docker run ghcr.io/arthurzhu1992/ts3audiobot:latest
+```
+
+#### First Login
+Open the web console (default http://localhost:58913). On first run you will be redirected to `/setup` to create an admin account.
+
+### Building from source
+
 ```bash
 ./gradlew bootJar
 ```
@@ -94,13 +60,7 @@ Windows:
 gradlew.bat bootJar
 ```
 
-#### 4) Run
-```bash
-java -jar build/libs/TS3AudioBot-0.0.1-SNAPSHOT.jar
-```
-
-#### 5) First Login
-Open the web console. On first run you will be redirected to `/setup` to create an admin account.
+The built JAR is at `build/libs/TS3AudioBot-*.jar`.
 
 ### Usage
 1. Go to **Bot Management**

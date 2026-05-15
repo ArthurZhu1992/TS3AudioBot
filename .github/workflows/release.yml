@@ -185,8 +185,12 @@ jobs:
           else
             echo "WARNING: No JAR found, creating package without it"
           fi
+          cp -r staging/ffmpeg    "${PKG}/"
           cp staging/*-dlp*       "${PKG}/" 2>/dev/null || true
           cp ts3Audio-config.toml "${PKG}/"
+          # 启动脚本（所有平台都放，用户按需使用）
+          cp start.sh start.bat   "${PKG}/" 2>/dev/null || true
+          chmod +x "${PKG}/start.sh" 2>/dev/null || true
           cp README*.md LICENSE NOTICE "${PKG}/" 2>/dev/null || true
 
       - name: Create ZIP
@@ -224,7 +228,15 @@ jobs:
           cat > release-notes.md <<EOF
           ## TS3AudioBot v${V}
 
-          每个 ZIP 包含对应平台编译的 FFmpeg + yt-dlp + 配置模板
+          每个 ZIP 内含 JAR + FFmpeg + yt-dlp + 配置模板 + 启动脚本，解压即用：
+
+          \`\`\`bash
+          unzip TS3AudioBot-${V}-linux-x64.zip
+          cd TS3AudioBot-${V}
+          ./start.sh
+          \`\`\`
+
+          Docker: \`docker pull ghcr.io/${{ github.repository }}:v${V}\`
 
           ### 下载
           | 平台 | 架构 | 文件 |
