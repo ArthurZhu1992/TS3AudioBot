@@ -1,6 +1,6 @@
 # TS3AudioBot
 <div align="right">
-  <a href="README.md"><kbd>中文</kbd></a>
+  <a href="README.md">中文</a>
 </div>
 
 TS3AudioBot is a TeamSpeak 3 audio bot with a built-in web console. It supports multi-bot management, playback queues, and common resolvers.

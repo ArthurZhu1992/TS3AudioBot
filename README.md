@@ -1,6 +1,6 @@
 # TS3AudioBot
 <div align="right">
-  <a href="README.en.md"><kbd>English</kbd></a>
+  <a href="README.en.md">English</a>
 </div>
 
 ## 中文
