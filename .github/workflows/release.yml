@@ -206,6 +206,8 @@ jobs:
     needs: [build-jar, package]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Download all artifacts
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -259,6 +261,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Lowercase image name (Docker requires lowercase)
+        run: |
+          echo "IMAGE_LC=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
       - name: Download JAR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -293,7 +299,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:v${{ needs.build-jar.outputs.version }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_LC }}:v${{ needs.build-jar.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_LC }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
