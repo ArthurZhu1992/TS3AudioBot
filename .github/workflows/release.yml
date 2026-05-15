@@ -91,6 +91,7 @@ jobs:
             desc: Linux x86_64
             ffmpeg-url: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz
             ffmpeg-extract: |
+              curl -fsSL -o ffmpeg.tar.xz "$FFMPEG_URL"
               tar xf ffmpeg.tar.xz
               mv ffmpeg-master-*-linux64-gpl/bin/ffmpeg staging/ffmpeg/
               mv ffmpeg-master-*-linux64-gpl/bin/ffprobe staging/ffmpeg/
@@ -101,6 +102,7 @@ jobs:
             desc: Linux ARM64 (aarch64)
             ffmpeg-url: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linuxarm64-gpl.tar.xz
             ffmpeg-extract: |
+              curl -fsSL -o ffmpeg.tar.xz "$FFMPEG_URL"
               tar xf ffmpeg.tar.xz
               mv ffmpeg-master-*-linuxarm64-gpl/bin/ffmpeg staging/ffmpeg/
               mv ffmpeg-master-*-linuxarm64-gpl/bin/ffprobe staging/ffmpeg/
@@ -111,6 +113,7 @@ jobs:
             desc: Windows x86_64
             ffmpeg-url: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip
             ffmpeg-extract: |
+              curl -fsSL -o ffmpeg.zip "$FFMPEG_URL"
               7z x ffmpeg.zip -o/tmp/ffmpeg-x -y > /dev/null
               find /tmp/ffmpeg-x -type f \( -name ffmpeg.exe -o -name ffprobe.exe \) -exec cp {} staging/ffmpeg/ \;
             yt-dlp-url: https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe
@@ -120,6 +123,7 @@ jobs:
             desc: macOS Universal (Intel + Apple Silicon)
             ffmpeg-url: https://evermeet.cx/ffmpeg/ffmpeg-8.1.zip
             ffmpeg-extract: |
+              curl -fsSL -o ffmpeg.zip "$FFMPEG_URL"
               unzip -j ffmpeg.zip -d staging/ffmpeg/
               curl -fsSL -o ffprobe.zip https://evermeet.cx/ffmpeg/ffprobe-8.1.zip
               unzip -j ffprobe.zip -d staging/ffmpeg/
@@ -138,10 +142,19 @@ jobs:
           find jar-dl -name '*.jar' -exec cp {} . \;
           ls -la *.jar
 
-      - name: Extract version
+      - name: Extract version from JAR
         id: version
         run: |
-          VER=$(ls TS3AudioBot-*.jar | sed 's/TS3AudioBot-//;s/.jar//')
+          JAR=$(find . -name 'TS3AudioBot*.jar' -type f | head -1)
+          if [ -z "$JAR" ]; then
+            echo "ERROR: No JAR found"
+            exit 1
+          fi
+          BASENAME=$(basename "$JAR" .jar)
+          # Handle both TS3AudioBot.jar (no version) and TS3AudioBot-0.1.0.jar
+          VER=$(echo "$BASENAME" | sed 's/^TS3AudioBot-//')
+          [ "$VER" = "TS3AudioBot" ] && VER=""
+          echo "Found JAR: $JAR -> version=$VER"
           echo "version=$VER" >> "$GITHUB_OUTPUT"
 
       - name: Create staging directories
@@ -150,8 +163,9 @@ jobs:
           mkdir -p "release/TS3AudioBot-${{ steps.version.outputs.version }}"
 
       - name: Download & extract FFmpeg
+        env:
+          FFMPEG_URL: ${{ matrix.ffmpeg-url }}
         run: |
-          curl -fsSL -o ffmpeg.tar.xz "${{ matrix.ffmpeg-url }}" 2>/dev/null || curl -fsSL -o ffmpeg.zip "${{ matrix.ffmpeg-url }}"
           ${{ matrix.ffmpeg-extract }}
           chmod +x staging/ffmpeg/*
 
@@ -160,12 +174,17 @@ jobs:
           curl -fsSL -o "staging/${{ matrix.yt-name }}" "${{ matrix.yt-dlp-url }}"
           chmod +x "staging/${{ matrix.yt-name }}"
 
-      - name: Assemble package
+      - name: Assemble release package
         run: |
           V="${{ steps.version.outputs.version }}"
           PKG="release/TS3AudioBot-${V}"
-          cp TS3AudioBot-*.jar   "${PKG}/TS3AudioBot-${V}.jar"
-          cp -r staging/ffmpeg    "${PKG}/"
+          # Search JAR from any location (artifact restore path varies)
+          JAR=$(find . -name 'TS3AudioBot-*.jar' -type f | head -1)
+          if [ -n "$JAR" ]; then
+            cp "$JAR" "${PKG}/TS3AudioBot-${V}.jar"
+          else
+            echo "WARNING: No JAR found, creating package without it"
+          fi
           cp staging/*-dlp*       "${PKG}/" 2>/dev/null || true
           cp ts3Audio-config.toml "${PKG}/"
           cp README*.md LICENSE NOTICE "${PKG}/" 2>/dev/null || true
@@ -246,7 +265,12 @@ jobs:
         run: |
           gh run download ${{ github.run_id }} --name release-jar --dir jar-dl
           find jar-dl -name '*.jar' -exec cp {} . \;
-          mv TS3AudioBot-*.jar TS3AudioBot.jar
+          JAR=$(find . -name 'TS3AudioBot*.jar' -type f | head -1)
+          if [ -z "$JAR" ]; then
+            echo "ERROR: No JAR found"
+            exit 1
+          fi
+          mv "$JAR" TS3AudioBot.jar
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
