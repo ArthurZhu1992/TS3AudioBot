@@ -993,19 +993,19 @@ public final class ConfigService {
         }
         return switch (quality) {
             case "standard" -> "bestaudio";
-            case "high" -> "bestaudio[abr<=192]";
-            case "medium" -> "bestaudio[abr<=128]";
-            case "low" -> "bestaudio[abr<=64]";
+            case "high" -> "bestaudio[abr<=192]/bestaudio";
+            case "medium" -> "bestaudio[abr<=128]/bestaudio";
+            case "low" -> "bestaudio[abr<=64]/bestaudio";
             case "auto" -> selectAutoFormat(channelBitrateBps);
             default -> "bestaudio";
         };
     }
 
     private static String selectAutoFormat(int channelBitrateBps) {
-        if (channelBitrateBps <= 0) return "bestaudio[abr<=128]";
-        if (channelBitrateBps <= 64000) return "bestaudio[abr<=64]";
-        if (channelBitrateBps <= 128000) return "bestaudio[abr<=128]";
-        return "bestaudio[abr<=192]";
+        if (channelBitrateBps <= 0) return "bestaudio[abr<=128]/bestaudio";
+        if (channelBitrateBps <= 64000) return "bestaudio[abr<=64]/bestaudio";
+        if (channelBitrateBps <= 128000) return "bestaudio[abr<=128]/bestaudio";
+        return "bestaudio[abr<=192]/bestaudio";
     }
 
     private record ResolvedSettings(

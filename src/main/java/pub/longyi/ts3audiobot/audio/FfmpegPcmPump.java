@@ -251,7 +251,11 @@ public final class FfmpegPcmPump {
         } finally {
             try {
                 int code = proc.waitFor();
-                log.info("[{}] process exited code={}", label, code);
+                if (code != 0) {
+                    log.warn("[{}] process exited code={}", label, code);
+                } else {
+                    log.info("[{}] process exited code={}", label, code);
+                }
             } catch (InterruptedException ex) {
                 Thread.currentThread().interrupt();
             }

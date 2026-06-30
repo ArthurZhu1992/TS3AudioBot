@@ -734,6 +734,7 @@ public final class QueueService {
                 track.playCount()
             );
         }
+        log.warn("[Queue] forceRepairTrack failed for id={} sourceId={}", track.id(), track.sourceId());
         return track;
     }
 
