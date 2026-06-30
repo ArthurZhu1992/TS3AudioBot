@@ -406,7 +406,7 @@ public final class TrackMediaService {
         args.add("--encoding");
         args.add("UTF-8");
         args.add("-f");
-        args.add("bestaudio");
+        args.add(configService.resolveAudioDownloadFormat(-1));
         String referer = resolveAuthReferer(sourceType, sourceId);
         if (!isBlank(referer)) {
             args.add("--referer");

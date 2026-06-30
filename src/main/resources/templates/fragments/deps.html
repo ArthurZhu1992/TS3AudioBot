@@ -5,15 +5,20 @@
 <th:block th:fragment="head-base">
     <link rel="icon" type="image/svg+xml" th:href="@{/favicon.svg}" href="/favicon.svg" />
     <link rel="stylesheet" th:href="@{/css/font-manrope.css}" href="/css/font-manrope.css" />
+    <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.3/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="https://cdn.bootcdn.net/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
 </th:block>
 
-<!-- 播放页额外依赖：Font Awesome 图标库。 -->
+<!-- 播放页额外依赖（继承 head-base）。 -->
 <th:block th:fragment="head-player">
     <th:block th:replace="~{fragments/deps :: head-base}"></th:block>
 </th:block>
 
-<!-- 通用脚本依赖：jQuery + Bootstrap。 -->
+<!-- 通用脚本依赖：jQuery + Bootstrap JS + cdn-loader。 -->
 <th:block th:fragment="scripts-base">
+    <script src="https://cdn.bootcdn.net/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
+    <script src="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.3/js/bootstrap.bundle.min.js"></script>
+    <script th:src="@{/js/cdn-loader.js}" src="/js/cdn-loader.js"></script>
 </th:block>
 
 <!-- 带依赖检测横幅的脚本组合（首页/设置页）。 -->
@@ -25,6 +30,7 @@
 <!-- 播放页脚本组合：在通用依赖上额外引入二维码库。 -->
 <th:block th:fragment="scripts-player">
     <th:block th:replace="~{fragments/deps :: scripts-base}"></th:block>
+    <script src="https://cdn.bootcdn.net/ajax/libs/qrious/4.0.2/qrious.min.js"></script>
     <script th:src="@{/js/dependency-banner.js}" src="/js/dependency-banner.js"></script>
 </th:block>
 </body>

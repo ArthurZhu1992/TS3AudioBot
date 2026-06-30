@@ -278,6 +278,7 @@ class TrackMediaServiceCacheKeyTest {
             new AppConfig.Tools("ffmpeg"),
             new AppConfig.Search("test", 0),
             new AppConfig.Media(true, true, 20, 720, new AppConfig.Image(true, imageMode, 120, 360)),
+            new AppConfig.Audio("standard"),
             new AppConfig.Resolvers(new AppConfig.ExternalResolvers("yt-dlp", "yt-dlp", "netease-cloud-music", "qqmusic")),
             List.of()
         ));

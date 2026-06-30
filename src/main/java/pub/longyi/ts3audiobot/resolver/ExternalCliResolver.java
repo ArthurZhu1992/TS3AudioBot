@@ -41,6 +41,7 @@ public final class ExternalCliResolver implements TrackResolver {
 
     private final String sourceType;
     private final String command;
+    private final String audioFormat;
     private final Supplier<String> cookieSupplier;
 
     /**
@@ -49,12 +50,17 @@ public final class ExternalCliResolver implements TrackResolver {
      * @param command 参数 command
      */
     public ExternalCliResolver(String sourceType, String command) {
-        this(sourceType, command, null);
+        this(sourceType, command, null, null);
     }
 
     public ExternalCliResolver(String sourceType, String command, Supplier<String> cookieSupplier) {
+        this(sourceType, command, null, cookieSupplier);
+    }
+
+    public ExternalCliResolver(String sourceType, String command, String audioFormat, Supplier<String> cookieSupplier) {
         this.sourceType = sourceType;
         this.command = command;
+        this.audioFormat = audioFormat == null || audioFormat.isBlank() ? "bestaudio" : audioFormat;
         this.cookieSupplier = cookieSupplier;
     }
 
@@ -129,7 +135,7 @@ public final class ExternalCliResolver implements TrackResolver {
             args.add("--get-duration");
             args.add("--get-thumbnail");
             args.add("-f");
-            args.add("bestaudio");
+            args.add(audioFormat);
             String referer = resolveAuthReferer(queryArg);
             if (referer != null && !referer.isBlank()) {
                 args.add("--referer");

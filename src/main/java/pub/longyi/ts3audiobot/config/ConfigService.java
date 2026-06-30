@@ -100,6 +100,8 @@ public final class ConfigService {
     private static final String KEY_STORAGE_QUEUE_FILE = "storage.queue_file";
     private static final String KEY_CACHE_YTDLP_TEMP_DIR = "cache.ytdlp_temp_dir";
     private static final String KEY_CACHE_YTDLP_CACHE_DIR = "cache.ytdlp_cache_dir";
+    private static final String KEY_AUDIO_QUALITY = "audio.quality";
+    private static final String DEFAULT_AUDIO_QUALITY = "standard";
     private static final String KEY_PATHS_FFMPEG = "paths.ffmpeg";
     private static final String KEY_PATHS_YT = "paths.yt";
     private static final String KEY_PATHS_YTMUSIC = "paths.ytmusic";
@@ -252,6 +254,7 @@ public final class ConfigService {
                     resolved.mediaImageCoverSize
                 )
             ),
+            new AppConfig.Audio(resolved.audioQuality),
             new AppConfig.Resolvers(new AppConfig.ExternalResolvers(
                 resolved.yt,
                 resolved.ytmusic,
@@ -305,6 +308,8 @@ public final class ConfigService {
             DEFAULT_MEDIA_IMAGE_COVER_SIZE
         ));
 
+        String audioQuality = getSetting(settings, KEY_AUDIO_QUALITY, DEFAULT_AUDIO_QUALITY);
+
         String ffmpegPathRaw = getSetting(settings, KEY_FFMPEG, DEFAULT_FFMPEG_PATH);
         String ffmpegPath = FfmpegLocator.resolve(ffmpegPathRaw, configPath, autoDownload);
         if (!ffmpegPath.equals(ffmpegPathRaw)) {
@@ -337,7 +342,8 @@ public final class ConfigService {
             mediaImageEnabled,
             mediaImageMode,
             mediaImageThumbSize,
-            mediaImageCoverSize
+            mediaImageCoverSize,
+            audioQuality
         );
     }
 
@@ -527,6 +533,7 @@ public final class ConfigService {
             if (mediaImageCoverSize != null) {
                 settings.put(KEY_MEDIA_IMAGE_COVER_SIZE, Long.toString(mediaImageCoverSize));
             }
+            putIfNotBlank(settings, KEY_AUDIO_QUALITY, toml.getString("audio.quality"));
             putIfNotBlank(settings, KEY_CACHE_YTDLP_TEMP_DIR, toml.getString("cache.ytdlp_temp_dir"));
             putIfNotBlank(settings, KEY_CACHE_YTDLP_CACHE_DIR, toml.getString("cache.ytdlp_cache_dir"));
 
@@ -576,6 +583,7 @@ public final class ConfigService {
         putSpring(settings, KEY_MEDIA_IMAGE_COVER_SIZE, environment, "ts3audiobot.media.image.cover-size");
         putSpring(settings, KEY_STORAGE_DATA_DIR, environment, "ts3audiobot.storage.data-dir");
         putSpring(settings, KEY_STORAGE_QUEUE_FILE, environment, "ts3audiobot.storage.queue-file");
+        putSpring(settings, KEY_AUDIO_QUALITY, environment, "ts3audiobot.audio.quality");
         putSpring(settings, KEY_CACHE_YTDLP_TEMP_DIR, environment, "ts3audiobot.cache.ytdlp-temp-dir");
         putSpring(settings, KEY_CACHE_YTDLP_CACHE_DIR, environment, "ts3audiobot.cache.ytdlp-cache-dir");
         if (!settings.containsKey(KEY_WEB_PORT)) {
@@ -978,6 +986,28 @@ public final class ConfigService {
         return v;
     }
 
+    public String resolveAudioDownloadFormat(int channelBitrateBps) {
+        String quality = config.audio == null ? DEFAULT_AUDIO_QUALITY : config.audio.quality;
+        if (quality == null || quality.isBlank()) {
+            quality = DEFAULT_AUDIO_QUALITY;
+        }
+        return switch (quality) {
+            case "standard" -> "bestaudio";
+            case "high" -> "bestaudio[abr<=192]";
+            case "medium" -> "bestaudio[abr<=128]";
+            case "low" -> "bestaudio[abr<=64]";
+            case "auto" -> selectAutoFormat(channelBitrateBps);
+            default -> "bestaudio";
+        };
+    }
+
+    private static String selectAutoFormat(int channelBitrateBps) {
+        if (channelBitrateBps <= 0) return "bestaudio[abr<=128]";
+        if (channelBitrateBps <= 64000) return "bestaudio[abr<=64]";
+        if (channelBitrateBps <= 128000) return "bestaudio[abr<=128]";
+        return "bestaudio[abr<=192]";
+    }
+
     private record ResolvedSettings(
         String botsPath,
         int port,
@@ -999,7 +1029,8 @@ public final class ConfigService {
         boolean mediaImageEnabled,
         AppConfig.ImageMode mediaImageMode,
         int mediaImageThumbSize,
-        int mediaImageCoverSize
+        int mediaImageCoverSize,
+        String audioQuality
     ) {
     }
 

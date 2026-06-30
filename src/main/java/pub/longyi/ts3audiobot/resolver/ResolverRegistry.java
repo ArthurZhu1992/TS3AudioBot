@@ -42,14 +42,15 @@ public final class ResolverRegistry {
     @Autowired
     public ResolverRegistry(ConfigService configService, SearchAuthService searchAuthService) {
         var external = configService.get().resolvers.external;
-        resolvers.add(new ExternalCliResolver("yt", external.yt));
-        resolvers.add(new ExternalCliResolver("ytmusic", external.ytmusic));
+        String audioFormat = configService.resolveAudioDownloadFormat(-1);
+        resolvers.add(new ExternalCliResolver("yt", external.yt, audioFormat, null));
+        resolvers.add(new ExternalCliResolver("ytmusic", external.ytmusic, audioFormat, null));
         String neteaseCommand = selectNeteaseCommand(external.netease, external.ytmusic, external.yt);
-        resolvers.add(new ExternalCliResolver("netease", neteaseCommand, () ->
+        resolvers.add(new ExternalCliResolver("netease", neteaseCommand, audioFormat, () ->
             resolveSourceCookie(searchAuthService, "netease")
         ));
         String qqCommand = selectQqCommand(external.qq, external.ytmusic, external.yt);
-        resolvers.add(new ExternalCliResolver("qq", qqCommand, () ->
+        resolvers.add(new ExternalCliResolver("qq", qqCommand, audioFormat, () ->
             resolveSourceCookie(searchAuthService, "qq")
         ));
     }

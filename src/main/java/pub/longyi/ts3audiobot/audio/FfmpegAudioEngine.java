@@ -44,7 +44,6 @@ public final class FfmpegAudioEngine implements AudioEngine {
     private static final String SOURCE_YTMUSIC = "ytmusic";
     private static final String SOURCE_YT_DISPLAY = "youtube";
     private static final String SOURCE_YTMUSIC_DISPLAY = "youtube music";
-    private static final String YT_DLP_FORMAT = "bestaudio";
     private static final String YT_DLP_OUTPUT = "-";
     private static final String YT_DLP_ENCODING = "UTF-8";
     private static final String YT_DLP_ARG_QUIET = "-q";
@@ -56,6 +55,7 @@ public final class FfmpegAudioEngine implements AudioEngine {
     private static final long CHANNEL_CODEC_QUERY_COOLDOWN_SUCCESS_MS = 180_000L;
     private static final long CHANNEL_CODEC_QUERY_COOLDOWN_FAILURE_MS = 30_000L;
 
+    private final ConfigService configService;
     private final String ffmpegPath;
     private final String ytDlpPath;
     private final String ytMusicPath;
@@ -65,6 +65,7 @@ public final class FfmpegAudioEngine implements AudioEngine {
 
     private volatile boolean playing;
     private volatile int volumePercent = 100;
+    private volatile int channelBitrateBps = -1;
     private volatile String currentStreamUrl;
     private volatile String currentSourceId;
     private volatile String currentSourceType;
@@ -85,6 +86,7 @@ public final class FfmpegAudioEngine implements AudioEngine {
      * @param voiceClient 参数 voiceClient
      */
     public FfmpegAudioEngine(ConfigService configService, Ts3VoiceClient voiceClient) {
+        this.configService = configService;
         var config = configService.get();
         this.ffmpegPath = config.tools.ffmpegPath;
         this.ytDlpPath = config.resolvers.external.yt;
@@ -277,6 +279,7 @@ public final class FfmpegAudioEngine implements AudioEngine {
             return;
         }
         int bitrate = resolveBitrate(codecInfo.codec(), codecInfo.quality());
+        this.channelBitrateBps = bitrate;
         if (opusEncoder instanceof ConcentusOpusEncoder encoder) {
             encoder.setBitrate(bitrate);
             log.info(
@@ -391,7 +394,7 @@ public final class FfmpegAudioEngine implements AudioEngine {
         args.add(YT_DLP_ARG_ENCODING);
         args.add(YT_DLP_ENCODING);
         args.add(YT_DLP_ARG_FORMAT);
-        args.add(YT_DLP_FORMAT);
+        args.add(configService.resolveAudioDownloadFormat(channelBitrateBps));
         args.add(YT_DLP_ARG_OUTPUT);
         args.add(YT_DLP_OUTPUT);
         args.add(sourceId);

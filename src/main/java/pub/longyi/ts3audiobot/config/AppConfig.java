@@ -29,6 +29,7 @@ public final class AppConfig {
     public final Tools tools;
     public final Search search;
     public final Media media;
+    public final Audio audio;
     public final Resolvers resolvers;
     public final List<BotConfig> bots;
 
@@ -47,6 +48,7 @@ public final class AppConfig {
         Tools tools,
         Search search,
         Media media,
+        Audio audio,
         Resolvers resolvers,
         List<BotConfig> bots
     ) {
@@ -55,6 +57,7 @@ public final class AppConfig {
         this.tools = tools;
         this.search = search;
         this.media = media;
+        this.audio = audio;
         this.resolvers = resolvers;
         this.bots = bots == null ? new ArrayList<>() : new ArrayList<>(bots);
     }
@@ -287,6 +290,23 @@ public final class AppConfig {
         }
     }
 
+
+    /**
+     * Audio 相关功能。
+     *
+     * <p>职责：音频下载质量配置。</p>
+     */
+    public static final class Audio {
+        public final String quality;
+
+        /**
+         * 创建 Audio 实例。
+         * @param quality 参数 quality (auto/standard/high/medium/low)
+         */
+        public Audio(String quality) {
+            this.quality = quality;
+        }
+    }
 
     /**
      * Resolvers 相关功能。

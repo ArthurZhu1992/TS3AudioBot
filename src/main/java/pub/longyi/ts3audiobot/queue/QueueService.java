@@ -19,7 +19,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
@@ -549,7 +548,7 @@ public final class QueueService {
             if (item == null || item.track() == null) {
                 return item;
             }
-            Track repaired = repairTrack(item.track());
+            Track repaired = forceRepairTrack(item.track());
             if (repaired.equals(item.track())) {
                 return item;
             }
@@ -695,7 +694,7 @@ public final class QueueService {
     }
 
     private Track repairTrack(Track track) {
-        if (!needsRepair(track)) {
+        if (!needsMetadataRepair(track)) {
             return track;
         }
         for (TrackResolver resolver : prioritizedResolvers(track)) {
@@ -709,6 +708,47 @@ public final class QueueService {
             }
         }
         return track;
+    }
+
+    private Track forceRepairTrack(Track track) {
+        if (track == null || !isHttpUrl(track.sourceId())) {
+            return track;
+        }
+        if (isExistingLocalFile(track.streamUrl())) {
+            return track;
+        }
+        for (TrackResolver resolver : prioritizedResolvers(track)) {
+            Optional<Track> resolved = resolveQuietly(resolver, track.sourceId());
+            if (resolved.isEmpty()) {
+                continue;
+            }
+            return new Track(
+                track.id(),
+                track.title(),
+                track.sourceType(),
+                track.sourceId(),
+                resolved.get().streamUrl(),
+                track.durationMs(),
+                track.coverUrl(),
+                track.artist(),
+                track.playCount()
+            );
+        }
+        return track;
+    }
+
+    private static boolean isExistingLocalFile(String path) {
+        if (path == null || path.isBlank()) {
+            return false;
+        }
+        if (path.startsWith("http://") || path.startsWith("https://")) {
+            return false;
+        }
+        try {
+            return Files.isRegularFile(Path.of(path));
+        } catch (Exception ex) {
+            return false;
+        }
     }
 
     private List<TrackResolver> prioritizedResolvers(Track track) {
@@ -740,18 +780,15 @@ public final class QueueService {
     private Track mergeTrack(Track existing, Track resolved) {
         String sourceId = firstNonBlank(existing.sourceId(), resolved.sourceId());
         String coverUrl = firstNonBlank(existing.coverUrl(), resolved.coverUrl());
-        String streamUrl = chooseStreamUrl(existing.streamUrl(), resolved.streamUrl());
         if (isInternalMediaCoverUrl(coverUrl) && !isBlank(resolved.coverUrl())) {
             coverUrl = resolved.coverUrl();
         }
-        // Future resolver-supported fields should be merged here so lazy list loading
-        // can continue repairing incomplete persisted items without adding a new flow.
         return new Track(
             firstNonBlank(existing.id(), resolved.id()),
             chooseTitle(existing.title(), sourceId, resolved.title()),
             firstNonBlank(existing.sourceType(), resolved.sourceType()),
             sourceId,
-            streamUrl,
+            existing.streamUrl(),
             existing.durationMs() > 0 ? existing.durationMs() : Math.max(0, resolved.durationMs()),
             coverUrl,
             firstNonBlank(existing.artist(), resolved.artist()),
@@ -759,93 +796,15 @@ public final class QueueService {
         );
     }
 
-    private boolean needsRepair(Track track) {
+    private boolean needsMetadataRepair(Track track) {
         if (track == null || !isHttpUrl(track.sourceId())) {
             return false;
         }
         return titleNeedsRepair(track.title(), track.sourceId())
             || isBlank(track.sourceType())
-            || isBlank(track.streamUrl())
-            || isInvalidLocalStreamUrl(track.streamUrl())
-            || isExpiredDirectStreamUrl(track.streamUrl())
-            || isLikelyEphemeralHttpStreamUrl(track.streamUrl())
             || track.durationMs() <= 0
             || isBlank(track.coverUrl())
             || isInternalMediaCoverUrl(track.coverUrl());
-    }
-
-    private String chooseStreamUrl(String existing, String resolved) {
-        if (isBlank(existing)) {
-            return firstNonBlank(resolved, existing);
-        }
-        // Persisted local cache paths and signed direct links can expire; prefer fresh resolver output.
-        if (isInvalidLocalStreamUrl(existing)
-            || isExpiredDirectStreamUrl(existing)
-            || isLikelyEphemeralHttpStreamUrl(existing)) {
-            return firstNonBlank(resolved, existing);
-        }
-        return firstNonBlank(existing, resolved);
-    }
-
-    private boolean isInvalidLocalStreamUrl(String value) {
-        if (isBlank(value) || isHttpUrl(value)) {
-            return false;
-        }
-        try {
-            return !Files.isRegularFile(Path.of(value));
-        } catch (Exception ex) {
-            return true;
-        }
-    }
-
-    private boolean isExpiredDirectStreamUrl(String value) {
-        if (!isHttpUrl(value)) {
-            return false;
-        }
-        Long expireEpoch = tryResolveExpireEpoch(value);
-        if (expireEpoch == null) {
-            return false;
-        }
-        return expireEpoch <= Instant.now().getEpochSecond();
-    }
-
-    private boolean isLikelyEphemeralHttpStreamUrl(String value) {
-        if (!isHttpUrl(value)) {
-            return false;
-        }
-        String lower = value.toLowerCase(Locale.ROOT);
-        return lower.contains("vuutv=")
-            || lower.contains("token=")
-            || lower.contains("signature=")
-            || lower.contains("x-amz-")
-            || lower.contains("auth=");
-    }
-
-    private Long tryResolveExpireEpoch(String value) {
-        if (isBlank(value)) {
-            return null;
-        }
-        int keyIndex = value.indexOf("expire=");
-        if (keyIndex < 0) {
-            return null;
-        }
-        int begin = keyIndex + "expire=".length();
-        int end = begin;
-        while (end < value.length()) {
-            char ch = value.charAt(end);
-            if (!Character.isDigit(ch)) {
-                break;
-            }
-            end++;
-        }
-        if (end <= begin) {
-            return null;
-        }
-        try {
-            return Long.parseLong(value.substring(begin, end));
-        } catch (NumberFormatException ex) {
-            return null;
-        }
     }
 
     private boolean isInternalMediaCoverUrl(String value) {
